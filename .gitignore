@@ -1,0 +1,31 @@
+# Generated / output files
+argon_graph.json
+ARGON.md
+argon_view.html
+
+# Agent / skill files (internal)
+.agents/
+
+# Archive
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Original source (files are already in root)
+tools/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

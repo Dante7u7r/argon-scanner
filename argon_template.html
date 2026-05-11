@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>ARGON_OS // ARCHITECTURE_SCANNER v9.0</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent:           #6a8ead;
+            --accent-secondary: #4a6a8a;
+            --bg-dark:          #07090c;
+            --surface:          rgba(15, 20, 25, 0.95);
+            --text-main:        #8ea0b0;
+            --text-bright:      #e0e6ed;
+            --text-muted:       #4a5a6a;     /* FIX: variable faltante */
+            --grid-color:       rgba(106, 142, 173, 0.08);
+            --border:           rgba(106, 142, 173, 0.25);
+        }
+
+        * { box-sizing: border-box; cursor: crosshair; }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: radial-gradient(circle at 2px 2px, var(--grid-color) 1px, transparent 0);
+            background-size: 40px 40px;
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Nav overlay */
+        #nav-overlay {
+            position: absolute;
+            bottom: 20px; right: 420px;
+            font-size: 0.6rem;
+            letter-spacing: 2px;
+            color: var(--accent);
+            pointer-events: none;
+            z-index: 5;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 15px;
+            border: 1px solid var(--border);
+        }
+
+        /* Themes */
+        .theme-selector {
+            display: flex; flex-wrap: wrap; gap: 8px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .theme-btn {
+            width: 35px; height: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .theme-btn:hover { opacity: 0.7; transform: scaleY(1.3); }
+
+        #viz-container {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        svg { width: 100%; height: 100%; }
+
+        /* Sidebar */
+        #sidebar {
+            width: 400px;
+            background: var(--surface);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-left: 1px solid var(--border);
+            padding: 40px 35px;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        .header { margin-bottom: 30px; }
+        .header h1 {
+            font-size: 1rem; font-weight: 800;
+            margin: 0; letter-spacing: 8px;
+            color: var(--text-bright);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+        }
+        .header .version { font-size: 0.5rem; color: var(--accent); margin-top: 8px; }
+
+        .input-group { margin-bottom: 25px; }
+        .input-group label {
+            font-size: 0.55rem; color: var(--accent);
+            display: block; margin-bottom: 10px;
+            letter-spacing: 2px; font-weight: 800;
+        }
+        input {
+            width: 100%;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            color: var(--text-bright);
+            padding: 10px 15px;
+            font-family: inherit; font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--accent); }
+
+        #node-info { flex-grow: 1; overflow-y: auto; padding-right: 4px; }
+
+        .card { margin-bottom: 30px; border-left: 2px solid var(--accent); padding-left: 15px; }
+        .card h2 { font-size: 0.85rem; margin: 0 0 12px 0; color: var(--text-bright); word-break: break-all; }
+        .stats-grid { font-size: 0.72rem; line-height: 2; }
+        .stat-item b { color: var(--accent); }
+
+        .type-tag {
+            font-size: 0.5rem; padding: 2px 8px;
+            border: 1px solid var(--accent); color: var(--accent);
+            margin-bottom: 12px; display: inline-block; font-weight: 800;
+        }
+
+        /* Nodos voxel */
+        .node-group { cursor: pointer; }
+        .voxel-top   { fill-opacity: 1;   stroke: rgba(255,255,255,0.08); stroke-width: 0.5; }
+        .voxel-left  { fill-opacity: 0.75; stroke: rgba(255,255,255,0.08); stroke-width: 0.5; }
+        .voxel-right { fill-opacity: 0.55; stroke: rgba(255,255,255,0.08); stroke-width: 0.5; }
+
+        .node-group:hover .voxel-top { filter: brightness(1.5); }
+
+        .node-text {
+            fill: rgba(255,255,255,0.85);
+            font-size: 8px; font-weight: 800;
+            text-anchor: middle; pointer-events: none;
+        }
+
+        /* Links — FIX: estado activo ahora tiene estilo */
+        .link {
+            stroke: var(--accent);
+            stroke-opacity: 0.12;
+            stroke-width: 1px;
+            transition: stroke-opacity 0.2s, stroke-width 0.2s;
+        }
+        .link.active {
+            stroke-opacity: 0.8;
+            stroke-width: 2px;
+        }
+        .link.dimmed {
+            stroke-opacity: 0.03;
+        }
+
+        /* Legend */
+        .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+        .legend-item {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 0.58rem; color: var(--text-muted);
+        }
+        .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+        /* Footer */
+        .sidebar-footer {
+            margin-top: 15px; font-size: 0.48rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+            line-height: 1.8;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* Glitch hover en título */
+        @keyframes glitch {
+            0%  { transform: translate(0); }
+            20% { transform: translate(-2px, 1px); }
+            40% { transform: translate(-1px, -1px); }
+            60% { transform: translate(2px, 1px); }
+            80% { transform: translate(1px, -1px); }
+            100%{ transform: translate(0); }
+        }
+        .glitch:hover { animation: glitch 0.25s infinite linear; }
+
+        /* Empty state */
+        .empty-state { color: var(--text-muted); font-size: 0.75rem; line-height: 1.8; }
+
+        /* Truncation badge */
+        .truncation-badge {
+            position: absolute;
+            top: 20px; left: 20px;
+            font-size: 0.55rem;
+            letter-spacing: 1px;
+            color: var(--accent);
+            background: rgba(0,0,0,0.8);
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            z-index: 5;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="nav-overlay">
+        NAV_SYS: ACTIVE // SECTOR_ALPHA<br>
+        COORD: <span id="coord-x">0</span>, <span id="coord-y">0</span><br>
+        SYNC_STATE: NOMINAL
+    </div>
+
+    <div id="viz-container"></div>
+
+    <div id="sidebar">
+        <div class="header">
+            <h1 class="glitch">ARGON_ARCHITECT</h1>
+            <div class="version">V9.0 // CARTOGRAPHY_MODULE</div>
+        </div>
+
+        <div class="theme-selector">
+            <div class="theme-btn" title="Architect" style="background:linear-gradient(90deg,#6a8ead 50%,#4a6a8a 50%)" onclick="setTheme('architect')"></div>
+            <div class="theme-btn" title="Cyber"     style="background:linear-gradient(90deg,#ff0055 50%,#00e5ff 50%)" onclick="setTheme('cyber')"></div>
+            <div class="theme-btn" title="Fallout"   style="background:linear-gradient(90deg,#ffb000 50%,#00ff88 50%)" onclick="setTheme('fallout')"></div>
+            <div class="theme-btn" title="Vaporwave" style="background:linear-gradient(90deg,#bc13fe 50%,#00ccff 50%)" onclick="setTheme('vaporwave')"></div>
+            <div class="theme-btn" title="Matrix"    style="background:linear-gradient(90deg,#00ff88 50%,#004422 50%)" onclick="setTheme('matrix')"></div>
+            <div class="theme-btn" title="Industrial"style="background:linear-gradient(90deg,#5a7a9a 50%,#ff5500 50%)" onclick="setTheme('industrial')"></div>
+        </div>
+
+        <div class="input-group">
+            <label>> BUSCAR_NODO</label>
+            <input type="text" id="search" placeholder="archivo, símbolo, extensión...">
+        </div>
+
+        <div id="node-info">
+            <div class="empty-state">
+                [!] SELECCIONA UN NODO<br>
+                PARA INSPECCIONAR EL DATA_STREAM
+            </div>
+        </div>
+
+        <div class="legend" id="legend"></div>
+
+        <div class="sidebar-footer">
+            ARGON v9.0 // UNIVERSAL_SCANNER<br>
+            PARSER: <span id="parser-mode">DETECTING</span> | BUDGET: ACTIVE
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // ARGON v9.0 — DUAL-MODE RENDERER
+        // < 500 nodes → SVG voxels (full aesthetic)
+        // >= 500 nodes → Canvas (unlimited scale, 10K+ nodes smooth)
+        // =====================================================================
+        // eslint-disable-next-line -- {{GRAPH_DATA}} is replaced by argon_view.py at build time
+        const rawData = {{GRAPH_DATA}}; // @BUILD_INJECT
+
+        const FILE_COLORS = {
+            py:'#5a7a9a',js:'#f0c040',ts:'#3178c6',jsx:'#61dafb',tsx:'#3178c6',
+            sql:'#f29111',md:'#6a6a7a',json:'#9cdcfe',css:'#264de4',html:'#e34c26',
+            yaml:'#cb171e',yml:'#cb171e',rs:'#dea584',go:'#00add8',cpp:'#00599c',
+            c:'#555599',java:'#b07219',rb:'#701516',php:'#4f5b93',cs:'#178600',
+            sh:'#89e051',bat:'#c1f12e',lua:'#000080',kt:'#7f52ff',swift:'#f05138',
+            toml:'#9c4221',xml:'#0060ac',
+        };
+        const THEMES = {
+            architect:  {acc:'#6a8ead',sec:'#4a6a8a',bg:'#07090c',muted:'#3a5060',border:'rgba(106,142,173,0.25)',surface:'rgba(15,20,25,0.95)',textMain:'#8ea0b0',textBright:'#e0e6ed',grid:'rgba(106,142,173,0.08)'},
+            cyber:      {acc:'#ff0055',sec:'#00e5ff',bg:'#0c0709',muted:'#552233',border:'rgba(255,0,85,0.25)',surface:'rgba(20,10,15,0.95)',textMain:'#cc8899',textBright:'#ffccdd',grid:'rgba(255,0,85,0.06)'},
+            fallout:    {acc:'#ffb000',sec:'#00ff88',bg:'#0c0b07',muted:'#554400',border:'rgba(255,176,0,0.25)',surface:'rgba(20,18,10,0.95)',textMain:'#aa8833',textBright:'#ffeebb',grid:'rgba(255,176,0,0.06)'},
+            vaporwave:  {acc:'#bc13fe',sec:'#00ccff',bg:'#0a070c',muted:'#440055',border:'rgba(188,19,254,0.25)',surface:'rgba(15,10,20,0.95)',textMain:'#9966bb',textBright:'#eeccff',grid:'rgba(188,19,254,0.06)'},
+            matrix:     {acc:'#00ff88',sec:'#005533',bg:'#050805',muted:'#005533',border:'rgba(0,255,136,0.2)',surface:'rgba(5,12,8,0.97)',textMain:'#33aa66',textBright:'#aaffcc',grid:'rgba(0,255,136,0.05)'},
+            industrial: {acc:'#ff5500',sec:'#5a7a9a',bg:'#0a0c0f',muted:'#553300',border:'rgba(255,85,0,0.25)',surface:'rgba(15,18,22,0.95)',textMain:'#aa7755',textBright:'#ffddcc',grid:'rgba(255,85,0,0.06)'},
+        };
+        let currentTheme = THEMES.architect;
+
+        // Parser mode
+        if (rawData.parser_mode)
+            document.getElementById('parser-mode').textContent = rawData.parser_mode.toUpperCase();
+
+        // Mode decision
+        const CANVAS_THRESHOLD = 500;
+        const nodeCount = rawData.nodes.length;
+        const useCanvas = nodeCount >= CANVAS_THRESHOLD;
+        const graphData = rawData;
+
+        // Mode badge
+        const modeBadge = document.createElement('div');
+        modeBadge.className = 'truncation-badge';
+        modeBadge.innerHTML = useCanvas
+            ? `PIXI/WebGL \u2014 ${nodeCount} FILES / ${rawData.edges.length} CONNECTIONS`
+            : `SVG MODE — ${nodeCount} FILES / ${rawData.edges.length} CONNECTIONS`;
+        document.getElementById('viz-container').appendChild(modeBadge);
+
+        const W = window.innerWidth - 400;
+        const H = window.innerHeight;
+
+        // =====================================================================
+        // SHARED: D3 Force Simulation
+        // =====================================================================
+        const sim = d3.forceSimulation(graphData.nodes)
+            .alphaDecay(useCanvas ? 0.02 : nodeCount > 200 ? 0.04 : 0.028)
+            .velocityDecay(useCanvas ? 0.3 : 0.35)
+            .force('link', d3.forceLink(graphData.edges).id(d => d.id)
+                .distance(useCanvas ? 60 : 130).strength(0.4))
+            .force('charge', d3.forceManyBody()
+                .strength(useCanvas ? -80 : nodeCount > 100 ? -400 : -700)
+                .theta(useCanvas ? 1.5 : 0.9))
+            .force('center', d3.forceCenter(W / 2, H / 2))
+            .force('collide', d3.forceCollide().radius(useCanvas ? 6 : 18).iterations(1));
+
+        // =====================================================================
+        // SHARED: Inspector
+        // =====================================================================
+        function showInspector(d) {
+            const kb = (d.size_bytes / 1024).toFixed(1);
+            let h = `<div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <span class="type-tag">.${d.type}</span>
+                    <span style="font-size:0.58rem;color:var(--accent)">${kb}KB</span>
+                </div>
+                <h2>${d.id.split('/').pop()}</h2>
+                ${d.summary ? `<div style="font-size:0.7rem;color:var(--accent);margin-bottom:12px;font-style:italic;line-height:1.6;">> ${d.summary}</div>` : ''}
+                <div class="stats-grid">
+                    <div class="stat-item">LINES: <b>${d.lines || 0}</b></div>
+                    <div class="stat-item">SYMBOLS: <b>${(d.symbols||[]).length}</b></div>
+                    <div class="stat-item">IMP: <b>${(d.importance||0).toFixed(2)}</b></div>
+                    <div class="stat-item">PATH: <b style="font-size:0.62rem;word-break:break-all">${d.id}</b></div>
+                </div></div>`;
+            if (d.symbols && d.symbols.length) {
+                const groups = d.symbols.reduce((acc, s) => { (acc[s.kind]=acc[s.kind]||[]).push(s.name); return acc; }, {});
+                h += `<h3 style="font-size:0.6rem;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px;">ARCH_SYMBOLS</h3>`;
+                for (const [kind, names] of Object.entries(groups)) {
+                    h += `<div class="card" style="border-color:var(--accent-secondary);margin-bottom:12px;">
+                        <b style="color:var(--text-bright);font-size:0.6rem;">[${kind.toUpperCase()}]</b>
+                        <div style="font-size:0.62rem;color:var(--text-main);margin-top:4px;line-height:1.8;">${names.slice(0,20).join(', ')}${names.length>20?` +${names.length-20} más`:''}</div>
+                    </div>`;
+                }
+            }
+            if (d.imports && d.imports.length) {
+                const unique = [...new Set(d.imports)];
+                h += `<h3 style="font-size:0.6rem;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px;">DEPENDENCIES</h3>
+                    <div class="card" style="font-size:0.6rem;color:var(--accent-secondary);line-height:1.9;">
+                        ${unique.slice(0,15).join('<br>')}${unique.length>15?`<br>+${unique.length-15} más`:''}
+                    </div>`;
+            }
+            d3.select('#node-info').html(h);
+        }
+
+        // =====================================================================
+        // THEME
+        // =====================================================================
+        function setTheme(name) {
+            const t = THEMES[name]; if (!t) return;
+            currentTheme = t;
+            const r = document.documentElement;
+            r.style.setProperty('--accent', t.acc);
+            r.style.setProperty('--accent-secondary', t.sec);
+            r.style.setProperty('--bg-dark', t.bg);
+            r.style.setProperty('--text-muted', t.muted);
+            r.style.setProperty('--border', t.border);
+            r.style.setProperty('--surface', t.surface);
+            r.style.setProperty('--text-main', t.textMain);
+            r.style.setProperty('--text-bright', t.textBright);
+            r.style.setProperty('--grid-color', t.grid);
+            document.body.style.backgroundColor = t.bg;
+            if (useCanvas) redrawPixi();
+        }
+
+        // Legend
+        const types = [...new Set(graphData.nodes.map(d => d.type))].filter(Boolean).sort();
+        d3.select('#legend').selectAll('.legend-item')
+            .data(types).join('div').attr('class','legend-item')
+            .html(d => `<div class="dot" style="background:${FILE_COLORS[d]||'#5a6a7a'}"></div><span>${d.toUpperCase()}</span>`);
+
+        // =====================================================================
+        // PIXI.JS MODE (>= 500 nodes) — WebGL GPU renderer
+        // =====================================================================
+        if (useCanvas) {
+            // PixiJS app — WebGL renderer, transparent bg handled manually
+            const app = new PIXI.Application({
+                width: W, height: H,
+                backgroundColor: 0x07090c,
+                antialias: true,
+                resolution: window.devicePixelRatio || 1,
+                autoDensity: true,
+            });
+            app.view.style.cssText = 'position:absolute;top:0;left:0;cursor:crosshair;';
+            document.getElementById('viz-container').appendChild(app.view);
+
+            // Zoomable stage container
+            const stage = new PIXI.Container();
+            app.stage.addChild(stage);
+
+            // Graphics layers
+            const edgeGfx = new PIXI.Graphics();
+            stage.addChild(edgeGfx);
+            const nodeGfx = new PIXI.Graphics();
+            stage.addChild(nodeGfx);
+
+            // Per-node label sprites (created lazily on zoom)
+            const labelContainer = new PIXI.Container();
+            stage.addChild(labelContainer);
+            const labelMap = new Map();
+
+            // Glow container for selected node
+            const glowGfx = new PIXI.Graphics();
+            stage.addChild(glowGfx);
+            stage.addChild(nodeGfx); // re-add on top of glow
+
+            // Helper: hex color string → PixiJS int
+            function hexInt(str) {
+                return parseInt((str||'#5a6a7a').replace('#',''), 16);
+            }
+            function nodeColorInt(d) {
+                return hexInt(FILE_COLORS[d.type] || '#5a6a7a');
+            }
+            function accentInt() { return hexInt(currentTheme.acc); }
+
+            // State
+            let selectedNode = null;
+            let searchFilter = null;
+            let pixiTransform = { x: 0, y: 0, k: 1 };
+
+            // D3 zoom → PixiJS stage transform
+            const zoomBehavior = d3.zoom().scaleExtent([0.02, 20])
+                .on('zoom', e => {
+                    pixiTransform = { x: e.transform.x, y: e.transform.y, k: e.transform.k };
+                    stage.x = e.transform.x;
+                    stage.y = e.transform.y;
+                    stage.scale.set(e.transform.k);
+                    redrawPixi();
+                });
+            d3.select(app.view).call(zoomBehavior);
+
+            // Search
+            let searchDebounce = null;
+            d3.select('#search').on('input', function() {
+                clearTimeout(searchDebounce);
+                searchDebounce = setTimeout(() => {
+                    const q = this.value.toLowerCase().trim();
+                    searchFilter = q ? d =>
+                        d.id.toLowerCase().includes(q) ||
+                        (d.type||'').includes(q) ||
+                        (d.summary||'').toLowerCase().includes(q) ||
+                        (d.symbols||[]).some(s => s.name.toLowerCase().includes(q))
+                    : null;
+                    redrawPixi();
+                }, 150);
+            });
+
+            function redrawPixi() {
+                const scale = pixiTransform.k;
+                const showLabels = scale > 1.4;
+                const baseR = Math.max(2.5, Math.min(7, 5 / Math.sqrt(scale)));
+
+                // Background color sync with theme
+                app.renderer.backgroundColor = hexInt(currentTheme.bg);
+
+                // --- EDGES ---
+                edgeGfx.clear();
+                edgeGfx.lineStyle(Math.max(0.3, 0.8 / scale), accentInt(), 0.16);
+                for (const e of graphData.edges) {
+                    if (!e.source.x) continue;
+                    const dimS = searchFilter && !searchFilter(e.source);
+                    const dimT = searchFilter && !searchFilter(e.target);
+                    if (dimS && dimT) continue;
+                    edgeGfx.moveTo(e.source.x, e.source.y);
+                    edgeGfx.lineTo(e.target.x, e.target.y);
+                }
+
+                // --- GLOW on selected ---
+                glowGfx.clear();
+                if (selectedNode && selectedNode.x) {
+                    const dotR = baseR * (1 + (selectedNode.importance || 0));
+                    // Multi-ring glow effect
+                    for (let i = 4; i > 0; i--) {
+                        glowGfx.beginFill(accentInt(), 0.06 * i);
+                        glowGfx.drawCircle(selectedNode.x, selectedNode.y, dotR + (i * 5 / scale));
+                        glowGfx.endFill();
+                    }
+                    // Solid ring
+                    glowGfx.lineStyle(1.5 / scale, accentInt(), 0.9);
+                    glowGfx.drawCircle(selectedNode.x, selectedNode.y, dotR + 3 / scale);
+                }
+
+                // --- NODES ---
+                nodeGfx.clear();
+                for (const d of graphData.nodes) {
+                    if (!d.x) continue;
+                    const dimmed = searchFilter && !searchFilter(d);
+                    const alpha = dimmed ? 0.07 : 1;
+                    const dotR = baseR * (1 + (d.importance || 0));
+                    nodeGfx.beginFill(nodeColorInt(d), alpha);
+                    nodeGfx.drawCircle(d.x, d.y, dotR);
+                    nodeGfx.endFill();
+                }
+
+                // --- LABELS (only when zoomed in) ---
+                labelContainer.visible = showLabels;
+                if (showLabels) {
+                    // Create/reuse label sprites
+                    const seen = new Set();
+                    for (const d of graphData.nodes) {
+                        if (!d.x) continue;
+                        const dimmed = searchFilter && !searchFilter(d);
+                        if (dimmed) continue;
+                        seen.add(d.id);
+                        let label = labelMap.get(d.id);
+                        if (!label) {
+                            label = new PIXI.Text(d.id.split('/').pop(), {
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontSize: 9,
+                                fill: currentTheme.textMain,
+                                resolution: 2,
+                            });
+                            labelMap.set(d.id, label);
+                            labelContainer.addChild(label);
+                        }
+                        const dotR = baseR * (1 + (d.importance || 0));
+                        label.x = d.x + dotR + 2;
+                        label.y = d.y - 5;
+                        label.scale.set(1 / scale);
+                        label.style.fill = (selectedNode && selectedNode.id === d.id)
+                            ? currentTheme.textBright : currentTheme.textMain;
+                        label.visible = true;
+                    }
+                    // Hide labels not in seen
+                    for (const [id, label] of labelMap) {
+                        if (!seen.has(id)) label.visible = false;
+                    }
+                }
+            }
+
+            // Quadtree for click/drag hit detection
+            let quadtree = d3.quadtree()
+                .x(d => d.x).y(d => d.y)
+                .addAll(graphData.nodes);
+
+            app.view.addEventListener('click', e => {
+                const rect = app.view.getBoundingClientRect();
+                const mx = (e.clientX - rect.left - pixiTransform.x) / pixiTransform.k;
+                const my = (e.clientY - rect.top - pixiTransform.y) / pixiTransform.k;
+                const found = quadtree.find(mx, my, 20 / pixiTransform.k);
+                selectedNode = found || null;
+                if (found) showInspector(found);
+                else d3.select('#node-info').html('<div class="empty-state">[!] SELECCIONA UN NODO<br>PARA INSPECCIONAR EL DATA_STREAM</div>');
+                redrawPixi();
+            });
+
+            // Mousemove coords
+            app.view.addEventListener('mousemove', e => {
+                const rect = app.view.getBoundingClientRect();
+                d3.select('#coord-x').text(Math.round(e.clientX - rect.left));
+                d3.select('#coord-y').text(Math.round(e.clientY - rect.top));
+            });
+
+            // Sim tick — rebuild quadtree every 3 ticks for perf
+            let tickCount = 0;
+            sim.on('tick', () => {
+                tickCount++;
+                if (tickCount % 3 === 0 || sim.alpha() < 0.05) {
+                    quadtree = d3.quadtree().x(d => d.x).y(d => d.y).addAll(graphData.nodes);
+                }
+                redrawPixi();
+            });
+            sim.on('end', () => {
+                quadtree = d3.quadtree().x(d => d.x).y(d => d.y).addAll(graphData.nodes);
+                sim.stop(); redrawPixi();
+            });
+
+            // Drag
+            d3.select(app.view).call(
+                d3.drag()
+                    .subject(e => {
+                        const rect = app.view.getBoundingClientRect();
+                        const mx = (e.sourceEvent.clientX - rect.left - pixiTransform.x) / pixiTransform.k;
+                        const my = (e.sourceEvent.clientY - rect.top - pixiTransform.y) / pixiTransform.k;
+                        return quadtree.find(mx, my, 20 / pixiTransform.k);
+                    })
+                    .on('start', e => {
+                        if (!e.subject) return;
+                        if (!e.active) sim.alphaTarget(0.2).restart();
+                        e.subject.fx = e.subject.x; e.subject.fy = e.subject.y;
+                    })
+                    .on('drag', e => {
+                        if (!e.subject) return;
+                        const rect = app.view.getBoundingClientRect();
+                        e.subject.fx = (e.sourceEvent.clientX - rect.left - pixiTransform.x) / pixiTransform.k;
+                        e.subject.fy = (e.sourceEvent.clientY - rect.top - pixiTransform.y) / pixiTransform.k;
+                    })
+                    .on('end', e => {
+                        if (!e.subject) return;
+                        if (!e.active) sim.alphaTarget(0);
+                        e.subject.fx = null; e.subject.fy = null;
+                    })
+            );
+
+            redrawPixi();
+
+
+        } else {
+        // =====================================================================
+        // SVG VOXEL MODE (< 500 nodes) -- original renderer
+        // =====================================================================
+            const svg = d3.select('#viz-container').append('svg')
+                .attr('viewBox', [0, 0, W, H])
+                .call(d3.zoom().scaleExtent([0.05, 12]).on('zoom', e => g.attr('transform', e.transform)));
+            const g = svg.append('g');
+
+            const links = g.append('g').selectAll('line')
+                .data(graphData.edges).join('line').attr('class','link');
+
+            const SIZE = 14;
+            const nodes = g.append('g').selectAll('g')
+                .data(graphData.nodes).join('g').attr('class','node-group')
+                .on('click', (e, d) => { e.stopPropagation(); showInspector(d); })
+                .call(d3.drag()
+                    .on('start',(e,d)=>{ if(!e.active) sim.alphaTarget(0.2).restart(); d.fx=d.x; d.fy=d.y; })
+                    .on('drag', (e,d)=>{ d.fx=e.x; d.fy=e.y; })
+                    .on('end',  (e,d)=>{ if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+
+            svg.on('click', () => {
+                links.classed('active',false).classed('dimmed',false);
+                d3.select('#node-info').html('<div class="empty-state">[!] SELECCIONA UN NODO<br>PARA INSPECCIONAR EL DATA_STREAM</div>');
+            });
+
+            function nodeColor(d) { return FILE_COLORS[d.type] || '#5a6a7a'; }
+
+            nodes.append('path').attr('class','voxel-left').attr('fill', nodeColor)
+                .attr('d', d => { const h=Math.min(Math.max((d.lines||10)/5,8),80); return `M 0 0 L 0 ${h} L ${-SIZE} ${h-SIZE/2} L ${-SIZE} ${-SIZE/2} Z`; });
+            nodes.append('path').attr('class','voxel-right').attr('fill', nodeColor)
+                .attr('d', d => { const h=Math.min(Math.max((d.lines||10)/5,8),80); return `M 0 0 L 0 ${h} L ${SIZE} ${h-SIZE/2} L ${SIZE} ${-SIZE/2} Z`; });
+            nodes.append('path').attr('class','voxel-top').attr('fill', nodeColor)
+                .attr('d', () => `M 0 0 L ${SIZE} ${-SIZE/2} L 0 ${-SIZE} L ${-SIZE} ${-SIZE/2} Z`);
+            nodes.append('text').attr('class','node-text').attr('y',-22)
+                .text(d => d.id.split('/').pop());
+
+            svg.on('mousemove', e => {
+                const [px,py] = d3.pointer(e);
+                d3.select('#coord-x').text(Math.round(px));
+                d3.select('#coord-y').text(Math.round(py));
+            });
+
+            d3.select('#search').on('input', function() {
+                const q = this.value.toLowerCase().trim();
+                if (!q) { nodes.style('opacity',1); links.style('opacity',1); return; }
+                const match = d => d.id.toLowerCase().includes(q)||(d.type||'').includes(q)||(d.summary||'').toLowerCase().includes(q)||(d.symbols||[]).some(s=>s.name.toLowerCase().includes(q));
+                nodes.style('opacity', d => match(d)?1:0.08);
+                links.style('opacity', d => (match(d.source)||match(d.target))?0.6:0.03);
+            });
+
+            sim.on('tick', () => {
+                links.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+                     .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+                nodes.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+            sim.on('end', () => sim.stop());
+        }
+    </script>
+</body>
+</html>
