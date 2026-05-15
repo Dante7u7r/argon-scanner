@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argon-architecture-scanner"
+version = "0.9.0"
+description = "Universal architecture scanner, Precision context selector, visualizer and MCP server."
+requires-python = ">=3.10"
+dependencies = [
+    "tiktoken>=0.12.0",
+    "pathspec>=1.1.1",
+    "tree-sitter>=0.25.2",
+    "tree-sitter-language-pack>=0.10.0",
+    "mcp>=1.27.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "playwright>=1.59.0",
+]
+
+[project.scripts]
+argon = "argon:main"
+argon-view = "argon_view:main"
+argon-watch = "argon_watch:main"
+argon-mcp = "argon_mcp:main"
+argon-bench = "argon_bench:main"

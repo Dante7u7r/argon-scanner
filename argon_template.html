@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>ARGON_OS // ARCHITECTURE_SCANNER v9.0</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;500;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent:           #6a8ead;
+            --accent-secondary: #4a6a8a;
+            --bg-dark:          #07090c;
+            --surface:          rgba(15, 20, 25, 0.95);
+            --text-main:        #8ea0b0;
+            --text-bright:      #e0e6ed;
+            --text-muted:       #4a5a6a;     /* FIX: variable faltante */
+            --grid-color:       rgba(106, 142, 173, 0.08);
+            --border:           rgba(106, 142, 173, 0.25);
+        }
+
+        * { box-sizing: border-box; cursor: crosshair; }
+
+        body {
+            background-color: var(--bg-dark);
+            background-image: radial-gradient(circle at 2px 2px, var(--grid-color) 1px, transparent 0);
+            background-size: 40px 40px;
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Nav overlay */
+        #nav-overlay {
+            position: absolute;
+            bottom: 20px; right: 420px;
+            font-size: 0.6rem;
+            letter-spacing: 2px;
+            color: var(--accent);
+            pointer-events: none;
+            z-index: 5;
+            background: rgba(0,0,0,0.6);
+            padding: 8px 15px;
+            border: 1px solid var(--border);
+        }
+
+        /* Themes */
+        .theme-selector {
+            display: flex; flex-wrap: wrap; gap: 8px;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .theme-btn {
+            width: 35px; height: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .theme-btn:hover { opacity: 0.7; transform: scaleY(1.3); }
+
+        #viz-container {
+            flex-grow: 1;
+            position: relative;
+        }
+
+        svg { width: 100%; height: 100%; }
+
+        /* Sidebar */
+        #sidebar {
+            width: 400px;
+            background: var(--surface);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border-left: 1px solid var(--border);
+            padding: 40px 35px;
+            display: flex;
+            flex-direction: column;
+            z-index: 100;
+            overflow: hidden;
+        }
+
+        .header { margin-bottom: 30px; }
+        .header h1 {
+            font-size: 1rem; font-weight: 800;
+            margin: 0; letter-spacing: 8px;
+            color: var(--text-bright);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+        }
+        .header .version { font-size: 0.5rem; color: var(--accent); margin-top: 8px; }
+
+        .input-group { margin-bottom: 25px; }
+        .input-group label {
+            font-size: 0.55rem; color: var(--accent);
+            display: block; margin-bottom: 10px;
+            letter-spacing: 2px; font-weight: 800;
+        }
+        input {
+            width: 100%;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            color: var(--text-bright);
+            padding: 10px 15px;
+            font-family: inherit; font-size: 0.85rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--accent); }
+
+        .mode-selector {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+        .mode-btn {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.55rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            padding: 8px 6px;
+            cursor: pointer;
+        }
+        .mode-btn.active {
+            border-color: var(--accent);
+            color: var(--text-bright);
+            background: rgba(106,142,173,0.12);
+        }
+        .mode-btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        .filter-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+        .filter-row label, .filter-row select {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.55rem;
+            padding: 8px 6px;
+        }
+        .filter-row input { width: auto; margin-right: 6px; }
+
+        #node-info { flex-grow: 1; overflow-y: auto; padding-right: 4px; }
+
+        .card { margin-bottom: 30px; border-left: 2px solid var(--accent); padding-left: 15px; }
+        .card h2 { font-size: 0.85rem; margin: 0 0 12px 0; color: var(--text-bright); word-break: break-all; }
+        .stats-grid { font-size: 0.72rem; line-height: 2; }
+        .stat-item b { color: var(--accent); }
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            margin-bottom: 18px;
+        }
+        .metric {
+            border: 1px solid var(--border);
+            background: rgba(0,0,0,0.22);
+            padding: 8px 6px;
+            min-width: 0;
+        }
+        .metric span {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.48rem;
+            letter-spacing: 1px;
+        }
+        .metric b {
+            color: var(--text-bright);
+            font-size: 0.72rem;
+            word-break: break-all;
+        }
+        .diagnostics {
+            border: 1px solid var(--border);
+            background: rgba(0,0,0,0.22);
+            padding: 10px;
+            margin-bottom: 18px;
+            font-size: 0.55rem;
+            line-height: 1.7;
+        }
+        .diag-ok { color: #7fd88f; }
+        .diag-warn { color: #ffb86b; }
+        .edge-list {
+            font-size: 0.58rem;
+            line-height: 1.8;
+            color: var(--text-main);
+            word-break: break-all;
+        }
+        .jump-link {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.58rem;
+            padding: 5px 0;
+            cursor: pointer;
+        }
+        .jump-link:hover { color: var(--text-bright); }
+
+        .type-tag {
+            font-size: 0.5rem; padding: 2px 8px;
+            border: 1px solid var(--accent); color: var(--accent);
+            margin-bottom: 12px; display: inline-block; font-weight: 800;
+        }
+
+        /* Nodos voxel */
+        .node-group { cursor: pointer; }
+        .voxel-top   { fill-opacity: 1;   stroke: rgba(255,255,255,0.08); stroke-width: 0.5; }
+        .voxel-left  { fill-opacity: 0.75; stroke: rgba(255,255,255,0.08); stroke-width: 0.5; }
+        .voxel-right { fill-opacity: 0.55; stroke: rgba(255,255,255,0.08); stroke-width: 0.5; }
+
+        .node-group:hover .voxel-top { filter: brightness(1.5); }
+
+        .node-text {
+            fill: rgba(255,255,255,0.85);
+            font-size: 8px; font-weight: 800;
+            text-anchor: middle; pointer-events: none;
+        }
+
+        /* Links — FIX: estado activo ahora tiene estilo */
+        .link {
+            stroke: var(--accent);
+            stroke-opacity: 0.12;
+            stroke-width: 1px;
+            transition: stroke-opacity 0.2s, stroke-width 0.2s;
+        }
+        .link.active {
+            stroke-opacity: 0.8;
+            stroke-width: 2px;
+        }
+        .link.dimmed {
+            stroke-opacity: 0.03;
+        }
+
+        /* Legend */
+        .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+        .legend-item {
+            display: flex; align-items: center; gap: 5px;
+            font-size: 0.58rem; color: var(--text-muted);
+        }
+        .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+        .edge-dot { width: 14px; height: 2px; flex-shrink: 0; }
+
+        /* Footer */
+        .sidebar-footer {
+            margin-top: 15px; font-size: 0.48rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+            padding-top: 10px;
+            line-height: 1.8;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 3px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        /* Glitch hover en título */
+        @keyframes glitch {
+            0%  { transform: translate(0); }
+            20% { transform: translate(-2px, 1px); }
+            40% { transform: translate(-1px, -1px); }
+            60% { transform: translate(2px, 1px); }
+            80% { transform: translate(1px, -1px); }
+            100%{ transform: translate(0); }
+        }
+        .glitch:hover { animation: glitch 0.25s infinite linear; }
+
+        /* Empty state */
+        .empty-state { color: var(--text-muted); font-size: 0.75rem; line-height: 1.8; }
+
+        /* Truncation badge */
+        .truncation-badge {
+            position: absolute;
+            top: 20px; left: 20px;
+            font-size: 0.55rem;
+            letter-spacing: 1px;
+            color: var(--accent);
+            background: rgba(0,0,0,0.8);
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            z-index: 5;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="nav-overlay">
+        NAV_SYS: ACTIVE // SECTOR_ALPHA<br>
+        COORD: <span id="coord-x">0</span>, <span id="coord-y">0</span><br>
+        SYNC_STATE: NOMINAL
+    </div>
+
+    <div id="viz-container"></div>
+
+    <div id="sidebar">
+        <div class="header">
+            <h1 class="glitch">ARGON_ARCHITECT</h1>
+            <div class="version">V9.0 // CARTOGRAPHY_MODULE</div>
+        </div>
+
+        <div class="theme-selector">
+            <div class="theme-btn" title="Architect" style="background:linear-gradient(90deg,#6a8ead 50%,#4a6a8a 50%)" onclick="setTheme('architect')"></div>
+            <div class="theme-btn" title="Cyber"     style="background:linear-gradient(90deg,#ff0055 50%,#00e5ff 50%)" onclick="setTheme('cyber')"></div>
+            <div class="theme-btn" title="Fallout"   style="background:linear-gradient(90deg,#ffb000 50%,#00ff88 50%)" onclick="setTheme('fallout')"></div>
+            <div class="theme-btn" title="Vaporwave" style="background:linear-gradient(90deg,#bc13fe 50%,#00ccff 50%)" onclick="setTheme('vaporwave')"></div>
+            <div class="theme-btn" title="Matrix"    style="background:linear-gradient(90deg,#00ff88 50%,#004422 50%)" onclick="setTheme('matrix')"></div>
+            <div class="theme-btn" title="Industrial"style="background:linear-gradient(90deg,#5a7a9a 50%,#ff5500 50%)" onclick="setTheme('industrial')"></div>
+        </div>
+
+        <div class="input-group">
+            <label>> BUSCAR_NODO</label>
+            <input type="text" id="search" placeholder="archivo, símbolo, extensión...">
+        </div>
+
+        <div class="mode-selector">
+            <button class="mode-btn active" data-mode="files">FILES</button>
+            <button class="mode-btn" data-mode="symbols">SYMBOLS</button>
+            <button class="mode-btn" data-mode="calls">CALLS</button>
+        </div>
+
+        <div class="filter-row">
+            <label><input type="checkbox" id="exported-only">EXPORTED</label>
+            <select id="node-limit">
+                <option value="0">ALL NODES</option>
+                <option value="250">TOP 250</option>
+                <option value="500">TOP 500</option>
+                <option value="1000">TOP 1000</option>
+            </select>
+        </div>
+
+        <div class="metric-grid" id="stats-panel"></div>
+        <div class="diagnostics" id="diagnostics-panel"></div>
+
+        <div id="node-info">
+            <div class="empty-state">
+                [!] SELECCIONA UN NODO<br>
+                PARA INSPECCIONAR EL DATA_STREAM
+            </div>
+        </div>
+
+        <div class="legend" id="legend"></div>
+        <div class="legend" id="edge-legend"></div>
+
+        <div class="sidebar-footer">
+            ARGON v9.0 // UNIVERSAL_SCANNER<br>
+            PARSER: <span id="parser-mode">DETECTING</span> | MODE: <span id="precision-mode">CLASSIC</span><br>
+            MODEL: <span id="model-name">N/A</span>
+        </div>
+    </div>
+
+    <script>
+        // =====================================================================
+        // ARGON v9.0 — PIXI/WebGL RENDERER
+        // =====================================================================
+        // eslint-disable-next-line -- {{GRAPH_DATA}} is replaced by argon_view.py at build time
+        const rawData = {{GRAPH_DATA}}; // @BUILD_INJECT
+
+        const FILE_COLORS = {
+            py:'#5a7a9a',js:'#f0c040',ts:'#3178c6',jsx:'#61dafb',tsx:'#3178c6',
+            sql:'#f29111',md:'#6a6a7a',json:'#9cdcfe',css:'#264de4',html:'#e34c26',
+            yaml:'#cb171e',yml:'#cb171e',rs:'#dea584',go:'#00add8',cpp:'#00599c',
+            c:'#555599',java:'#b07219',rb:'#701516',php:'#4f5b93',cs:'#178600',
+            sh:'#89e051',bat:'#c1f12e',lua:'#000080',kt:'#7f52ff',swift:'#f05138',
+            toml:'#9c4221',xml:'#0060ac',
+        };
+        const THEMES = {
+            architect:  {acc:'#6a8ead',sec:'#4a6a8a',bg:'#07090c',muted:'#3a5060',border:'rgba(106,142,173,0.25)',surface:'rgba(15,20,25,0.95)',textMain:'#8ea0b0',textBright:'#e0e6ed',grid:'rgba(106,142,173,0.08)'},
+            cyber:      {acc:'#ff0055',sec:'#00e5ff',bg:'#0c0709',muted:'#552233',border:'rgba(255,0,85,0.25)',surface:'rgba(20,10,15,0.95)',textMain:'#cc8899',textBright:'#ffccdd',grid:'rgba(255,0,85,0.06)'},
+            fallout:    {acc:'#ffb000',sec:'#00ff88',bg:'#0c0b07',muted:'#554400',border:'rgba(255,176,0,0.25)',surface:'rgba(20,18,10,0.95)',textMain:'#aa8833',textBright:'#ffeebb',grid:'rgba(255,176,0,0.06)'},
+            vaporwave:  {acc:'#bc13fe',sec:'#00ccff',bg:'#0a070c',muted:'#440055',border:'rgba(188,19,254,0.25)',surface:'rgba(15,10,20,0.95)',textMain:'#9966bb',textBright:'#eeccff',grid:'rgba(188,19,254,0.06)'},
+            matrix:     {acc:'#00ff88',sec:'#005533',bg:'#050805',muted:'#005533',border:'rgba(0,255,136,0.2)',surface:'rgba(5,12,8,0.97)',textMain:'#33aa66',textBright:'#aaffcc',grid:'rgba(0,255,136,0.05)'},
+            industrial: {acc:'#ff5500',sec:'#5a7a9a',bg:'#0a0c0f',muted:'#553300',border:'rgba(255,85,0,0.25)',surface:'rgba(15,18,22,0.95)',textMain:'#aa7755',textBright:'#ffddcc',grid:'rgba(255,85,0,0.06)'},
+        };
+        let currentTheme = THEMES.architect;
+
+        // Parser mode
+        if (rawData.parser_mode)
+            document.getElementById('parser-mode').textContent = rawData.parser_mode.toUpperCase();
+        document.getElementById('precision-mode').textContent = rawData.precision ? 'PRECISION' : 'CLASSIC';
+        document.getElementById('model-name').textContent = rawData.model || 'N/A';
+
+        const rawFileNodes = rawData.nodes || [];
+        const rawFileEdges = rawData.edges || [];
+        const rawSymbolNodes = rawData.symbols || [];
+        const rawSymbolEdges = rawData.symbol_edges || [];
+        const graphStats = rawData.stats || {};
+        const state = {
+            exportedOnly: false,
+            nodeLimit: 0,
+        };
+
+        function cloneNode(node, mode) {
+            return {
+                ...node,
+                viz_id: node.id,
+                label: mode === 'files' ? node.id.split('/').pop() : node.name,
+                mode,
+            };
+        }
+
+        function buildGraph(mode) {
+            if (mode === 'symbols' || mode === 'calls') {
+                let sourceNodes = rawSymbolNodes;
+                if (state.exportedOnly) sourceNodes = sourceNodes.filter(n => n.exported);
+                if (state.nodeLimit > 0) {
+                    sourceNodes = [...sourceNodes]
+                        .sort((a, b) => (b.rank || 0) - (a.rank || 0))
+                        .slice(0, state.nodeLimit);
+                }
+                let nodes = sourceNodes.map(n => cloneNode(n, 'symbols'));
+                const allowed = new Set(nodes.map(n => n.id));
+                const sourceEdges = mode === 'calls'
+                    ? rawSymbolEdges.filter(e => e.kind === 'calls-symbol')
+                    : rawSymbolEdges;
+                const edges = sourceEdges
+                    .filter(e => allowed.has(e.source) && allowed.has(e.target))
+                    .map(e => ({ ...e }));
+                if (mode === 'calls') {
+                    const connected = new Set(edges.flatMap(e => [e.source, e.target]));
+                    nodes = nodes.filter(n => connected.has(n.id));
+                }
+                nodes.sort((a, b) => {
+                    const weightA = mode === 'calls' ? (a.inbound_calls || 0) : (a.rank || 0);
+                    const weightB = mode === 'calls' ? (b.inbound_calls || 0) : (b.rank || 0);
+                    return weightB - weightA;
+                });
+                return { mode, nodes, edges };
+            }
+            let fileNodes = rawFileNodes;
+            if (state.nodeLimit > 0) {
+                fileNodes = [...fileNodes]
+                    .sort((a, b) => (b.importance || 0) - (a.importance || 0))
+                    .slice(0, state.nodeLimit);
+            }
+            const allowed = new Set(fileNodes.map(n => n.id));
+            return {
+                mode: 'files',
+                nodes: fileNodes.map(n => cloneNode(n, 'files')),
+                edges: rawFileEdges.filter(e => allowed.has(e.source) && allowed.has(e.target)).map(e => ({ ...e })),
+            };
+        }
+
+        let activeMode = 'files';
+        let graphData = buildGraph(activeMode);
+        let nodeCount = graphData.nodes.length;
+
+        // Mode badge
+        const modeBadge = document.createElement('div');
+        modeBadge.className = 'truncation-badge';
+        function updateModeBadge() {
+            const label = activeMode.toUpperCase();
+            modeBadge.innerHTML = `PIXI/WebGL \u2014 ${label}: ${graphData.nodes.length} NODES / ${graphData.edges.length} EDGES`;
+        }
+        updateModeBadge();
+        document.getElementById('viz-container').appendChild(modeBadge);
+
+        function updateStatsPanel() {
+            const stats = [
+                ['FILES', graphStats.total_files ?? rawFileNodes.length],
+                ['F EDGES', graphStats.total_connections ?? rawFileEdges.length],
+                ['SYMBOLS', graphStats.total_symbols ?? rawSymbolNodes.length],
+                ['S EDGES', graphStats.total_symbol_connections ?? rawSymbolEdges.length],
+                ['CALLS', graphStats.total_symbol_calls ?? rawSymbolEdges.filter(e => e.kind === 'calls-symbol').length],
+                ['UNRES', graphStats.unresolved_imports ?? 0],
+            ];
+            d3.select('#stats-panel').selectAll('.metric')
+                .data(stats, d => d[0])
+                .join('div')
+                .attr('class', 'metric')
+                .html(d => `<span>${d[0]}</span><b>${d[1]}</b>`);
+        }
+        updateStatsPanel();
+
+        function updateDiagnosticsPanel() {
+            const unresolved = graphStats.unresolved_imports ?? 0;
+            const cacheHits = graphStats.cache_hits ?? 0;
+            const precision = rawData.precision ? 'PRECISION' : 'CLASSIC';
+            const lines = [
+                `<div class="${rawData.precision ? 'diag-ok' : 'diag-warn'}">MODE: ${precision}</div>`,
+                `<div class="${unresolved === 0 ? 'diag-ok' : 'diag-warn'}">UNRESOLVED IMPORTS: ${unresolved}</div>`,
+                `<div class="diag-ok">CACHE HITS: ${cacheHits}</div>`,
+                `<div>MODEL: ${rawData.model || 'N/A'}</div>`
+            ];
+            document.getElementById('diagnostics-panel').innerHTML = lines.join('');
+        }
+        updateDiagnosticsPanel();
+
+        function configureModeButtons() {
+            const hasSymbols = rawSymbolNodes.length > 0;
+            const hasCalls = rawSymbolEdges.some(e => e.kind === 'calls-symbol');
+            d3.select('.mode-btn[data-mode="symbols"]').property('disabled', !hasSymbols);
+            d3.select('.mode-btn[data-mode="calls"]').property('disabled', !hasCalls);
+        }
+        configureModeButtons();
+
+        function emptyStateForMode(mode) {
+            if (mode === 'symbols') {
+                return '<div class="empty-state">[!] SYMBOL GRAPH NO DISPONIBLE<br>GENERA CON --precision PARA VER SÍMBOLOS</div>';
+            }
+            if (mode === 'calls') {
+                return '<div class="empty-state">[!] CALL GRAPH VACÍO<br>NO HAY calls-symbol EN ESTE GRAFO</div>';
+            }
+            return '<div class="empty-state">[!] SELECCIONA UN NODO<br>PARA INSPECCIONAR EL DATA_STREAM</div>';
+        }
+
+        const W = window.innerWidth - 400;
+        const H = window.innerHeight;
+
+        // =====================================================================
+        // SHARED: D3 Force Simulation
+        // =====================================================================
+        const sim = d3.forceSimulation(graphData.nodes)
+            .alphaDecay(0.02)
+            .velocityDecay(0.3)
+            .force('link', d3.forceLink(graphData.edges).id(d => d.id)
+                .distance(60).strength(0.4))
+            .force('charge', d3.forceManyBody()
+                .strength(-80)
+                .theta(1.5))
+            .force('center', d3.forceCenter(W / 2, H / 2))
+            .force('collide', d3.forceCollide().radius(6).iterations(1));
+
+        // =====================================================================
+        // SHARED: Inspector
+        // =====================================================================
+        function nodeKey(nodeOrId) {
+            return typeof nodeOrId === 'string' ? nodeOrId : nodeOrId.id;
+        }
+
+        function edgeEndpointId(value) {
+            return typeof value === 'string' ? value : value.id;
+        }
+
+        function connectedEdges(id) {
+            return graphData.edges.filter(e => edgeEndpointId(e.source) === id || edgeEndpointId(e.target) === id);
+        }
+
+        function directionalEdges(id) {
+            return {
+                incoming: graphData.edges.filter(e => edgeEndpointId(e.target) === id),
+                outgoing: graphData.edges.filter(e => edgeEndpointId(e.source) === id),
+            };
+        }
+
+        function renderEdgeList(title, edges, direction) {
+            if (!edges.length) return '';
+            const rows = edges.slice(0, 12).map(e => {
+                const otherId = direction === 'incoming' ? edgeEndpointId(e.source) : edgeEndpointId(e.target);
+                const label = `${direction === 'incoming' ? '<-' : '->'} ${otherId}`;
+                const kind = e.kind ? ` [${e.kind}]` : '';
+                return `<button class="jump-link" data-jump="${otherId}">${label}${kind}</button>`;
+            }).join('');
+            const more = edges.length > 12 ? `<div style="color:var(--text-muted);margin-top:6px;">+${edges.length - 12} more</div>` : '';
+            return `<h3 style="font-size:0.6rem;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px;">${title}</h3>
+                <div class="card edge-list">${rows}${more}</div>`;
+        }
+
+        function bindInspectorActions() {
+            d3.selectAll('.jump-link').on('click', function() {
+                const id = this.dataset.jump;
+                const target = graphData.nodes.find(n => n.id === id);
+                if (!target) return;
+                selectedNode = target;
+                showInspector(target);
+                redrawPixi();
+            });
+        }
+
+        function showInspector(d) {
+            if (d.mode === 'symbols') return showSymbolInspector(d);
+            selectedNode = d;
+            const rel = directionalEdges(d.id);
+            const kb = (d.size_bytes / 1024).toFixed(1);
+            let h = `<div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <span class="type-tag">.${d.type}</span>
+                    <span style="font-size:0.58rem;color:var(--accent)">${kb}KB</span>
+                </div>
+                <h2>${d.id.split('/').pop()}</h2>
+                ${d.summary ? `<div style="font-size:0.7rem;color:var(--accent);margin-bottom:12px;font-style:italic;line-height:1.6;">> ${d.summary}</div>` : ''}
+                <div class="stats-grid">
+                    <div class="stat-item">LINES: <b>${d.lines || 0}</b></div>
+                    <div class="stat-item">SYMBOLS: <b>${(d.symbols||[]).length}</b></div>
+                    <div class="stat-item">IMP: <b>${(d.importance||0).toFixed(2)}</b></div>
+                    <div class="stat-item">IN: <b>${rel.incoming.length}</b> | OUT: <b>${rel.outgoing.length}</b></div>
+                    <div class="stat-item">PATH: <b style="font-size:0.62rem;word-break:break-all">${d.id}</b></div>
+                </div></div>`;
+            if (d.symbols && d.symbols.length) {
+                const groups = d.symbols.reduce((acc, s) => { (acc[s.kind]=acc[s.kind]||[]).push(s.name); return acc; }, {});
+                h += `<h3 style="font-size:0.6rem;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px;">ARCH_SYMBOLS</h3>`;
+                for (const [kind, names] of Object.entries(groups)) {
+                    h += `<div class="card" style="border-color:var(--accent-secondary);margin-bottom:12px;">
+                        <b style="color:var(--text-bright);font-size:0.6rem;">[${kind.toUpperCase()}]</b>
+                        <div style="font-size:0.62rem;color:var(--text-main);margin-top:4px;line-height:1.8;">${names.slice(0,20).join(', ')}${names.length>20?` +${names.length-20} más`:''}</div>
+                    </div>`;
+                }
+            }
+            if (d.imports && d.imports.length) {
+                const unique = [...new Set(d.imports)];
+                h += `<h3 style="font-size:0.6rem;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px;">DEPENDENCIES</h3>
+                    <div class="card" style="font-size:0.6rem;color:var(--accent-secondary);line-height:1.9;">
+                        ${unique.slice(0,15).join('<br>')}${unique.length>15?`<br>+${unique.length-15} más`:''}
+                    </div>`;
+            }
+            if (d.unresolved_imports && d.unresolved_imports.length) {
+                h += `<h3 style="font-size:0.6rem;letter-spacing:2px;color:#ff5500;margin-bottom:10px;">UNRESOLVED</h3>
+                    <div class="card" style="font-size:0.6rem;color:#ff9966;line-height:1.9;">
+                        ${d.unresolved_imports.slice(0,15).join('<br>')}
+                    </div>`;
+            }
+            h += renderEdgeList('INCOMING', rel.incoming, 'incoming');
+            h += renderEdgeList('OUTGOING', rel.outgoing, 'outgoing');
+            d3.select('#node-info').html(h);
+            bindInspectorActions();
+        }
+
+        function showSymbolInspector(d) {
+            selectedNode = d;
+            const rel = directionalEdges(d.id);
+            let h = `<div class="card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <span class="type-tag">${(d.kind || 'symbol').toUpperCase()}</span>
+                    <span style="font-size:0.58rem;color:var(--accent)">RANK ${(d.rank||0).toFixed(3)}</span>
+                </div>
+                <h2>${d.name}</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">FILE: <b style="font-size:0.62rem;word-break:break-all">${d.file}</b></div>
+                    <div class="stat-item">LINES: <b>${d.start_line || 0}-${d.end_line || 0}</b></div>
+                    <div class="stat-item">EXPORTED: <b>${d.exported ? 'YES' : 'NO'}</b></div>
+                    <div class="stat-item">IN CALLS: <b>${d.inbound_calls || 0}</b></div>
+                    <div class="stat-item">OUT CALLS: <b>${d.outbound_calls || 0}</b></div>
+                    <div class="stat-item">IN: <b>${rel.incoming.length}</b> | OUT: <b>${rel.outgoing.length}</b></div>
+                </div></div>`;
+            if (d.signature) {
+                h += `<h3 style="font-size:0.6rem;letter-spacing:2px;color:var(--text-muted);margin-bottom:10px;">SIGNATURE</h3>
+                    <div class="card" style="font-size:0.62rem;color:var(--text-main);line-height:1.8;word-break:break-word;">${d.signature}</div>`;
+            }
+            h += renderEdgeList(activeMode === 'calls' ? 'CALLERS' : 'INCOMING', rel.incoming, 'incoming');
+            h += renderEdgeList(activeMode === 'calls' ? 'CALLEES' : 'OUTGOING', rel.outgoing, 'outgoing');
+            d3.select('#node-info').html(h);
+            bindInspectorActions();
+        }
+
+        // =====================================================================
+        // THEME
+        // =====================================================================
+        function setTheme(name) {
+            const t = THEMES[name]; if (!t) return;
+            currentTheme = t;
+            const r = document.documentElement;
+            r.style.setProperty('--accent', t.acc);
+            r.style.setProperty('--accent-secondary', t.sec);
+            r.style.setProperty('--bg-dark', t.bg);
+            r.style.setProperty('--text-muted', t.muted);
+            r.style.setProperty('--border', t.border);
+            r.style.setProperty('--surface', t.surface);
+            r.style.setProperty('--text-main', t.textMain);
+            r.style.setProperty('--text-bright', t.textBright);
+            r.style.setProperty('--grid-color', t.grid);
+            document.body.style.backgroundColor = t.bg;
+            redrawPixi();
+        }
+
+        // Legend
+        function refreshLegend() {
+            const values = activeMode === 'files'
+                ? [...new Set(graphData.nodes.map(d => d.type))].filter(Boolean).sort()
+                : [...new Set(graphData.nodes.map(d => d.kind))].filter(Boolean).sort();
+            d3.select('#legend').selectAll('.legend-item')
+                .data(values, d => d).join('div').attr('class','legend-item')
+                .html(d => `<div class="dot" style="background:${nodeColorHex({type:d, kind:d, mode:activeMode})}"></div><span>${String(d).toUpperCase()}</span>`);
+            const edgeValues = activeMode === 'files'
+                ? [{label:'FILE IMPORT', color: currentTheme.acc}]
+                : [
+                    {label:'SYMBOL IMPORT', color: currentTheme.acc},
+                    {label:'SYMBOL CALL', color: '#ffb000'},
+                ].filter(item => activeMode !== 'calls' || item.label === 'SYMBOL CALL');
+            d3.select('#edge-legend').selectAll('.legend-item')
+                .data(edgeValues, d => d.label).join('div').attr('class', 'legend-item')
+                .html(d => `<div class="edge-dot" style="background:${d.color}"></div><span>${d.label}</span>`);
+        }
+        refreshLegend();
+
+        // =====================================================================
+        // PIXI.JS MODE — WebGL GPU renderer
+        // =====================================================================
+            // PixiJS app — WebGL renderer, transparent bg handled manually
+            const app = new PIXI.Application({
+                width: W, height: H,
+                backgroundColor: 0x07090c,
+                antialias: true,
+                resolution: window.devicePixelRatio || 1,
+                autoDensity: true,
+            });
+            app.view.style.cssText = 'position:absolute;top:0;left:0;cursor:crosshair;';
+            document.getElementById('viz-container').appendChild(app.view);
+
+            // Zoomable stage container
+            const stage = new PIXI.Container();
+            app.stage.addChild(stage);
+
+            // Graphics layers
+            const edgeGfx = new PIXI.Graphics();
+            stage.addChild(edgeGfx);
+            const nodeGfx = new PIXI.Graphics();
+            stage.addChild(nodeGfx);
+
+            // Per-node label sprites (created lazily on zoom)
+            const labelContainer = new PIXI.Container();
+            stage.addChild(labelContainer);
+            const labelMap = new Map();
+
+            // Glow container for selected node
+            const glowGfx = new PIXI.Graphics();
+            stage.addChild(glowGfx);
+            stage.addChild(nodeGfx); // re-add on top of glow
+
+            // Helper: hex color string → PixiJS int
+            function hexInt(str) {
+                return parseInt((str||'#5a6a7a').replace('#',''), 16);
+            }
+            function nodeColorHex(d) {
+                if (d.mode === 'symbols' || activeMode !== 'files') {
+                    const kindColors = {
+                        func: '#00cc88',
+                        function: '#00cc88',
+                        method: '#00aaff',
+                        class: '#ffb000',
+                        interface: '#bc13fe',
+                        enum: '#f05138',
+                        struct: '#5a7a9a',
+                        symbol: '#8ea0b0',
+                    };
+                    return kindColors[d.kind] || '#8ea0b0';
+                }
+                return FILE_COLORS[d.type] || '#5a6a7a';
+            }
+            function nodeColorInt(d) {
+                return hexInt(nodeColorHex(d));
+            }
+            function accentInt() { return hexInt(currentTheme.acc); }
+
+            // State
+            let selectedNode = null;
+            let searchFilter = null;
+            let pixiTransform = { x: 0, y: 0, k: 1 };
+
+            // D3 zoom → PixiJS stage transform
+            const zoomBehavior = d3.zoom().scaleExtent([0.02, 20])
+                .on('zoom', e => {
+                    pixiTransform = { x: e.transform.x, y: e.transform.y, k: e.transform.k };
+                    stage.x = e.transform.x;
+                    stage.y = e.transform.y;
+                    stage.scale.set(e.transform.k);
+                    redrawPixi();
+                });
+            d3.select(app.view).call(zoomBehavior);
+
+            // Search
+            let searchDebounce = null;
+            d3.select('#search').on('input', function() {
+                clearTimeout(searchDebounce);
+                searchDebounce = setTimeout(() => {
+                    const q = this.value.toLowerCase().trim();
+                    searchFilter = q ? d =>
+                        d.id.toLowerCase().includes(q) ||
+                        (d.name||'').toLowerCase().includes(q) ||
+                        (d.file||'').toLowerCase().includes(q) ||
+                        (d.signature||'').toLowerCase().includes(q) ||
+                        (d.kind||'').toLowerCase().includes(q) ||
+                        (d.type||'').includes(q) ||
+                        (d.summary||'').toLowerCase().includes(q) ||
+                        (d.symbols||[]).some(s => s.name.toLowerCase().includes(q))
+                    : null;
+                    redrawPixi();
+                }, 150);
+            });
+
+            function redrawPixi() {
+                const scale = pixiTransform.k;
+                const showLabels = scale > 1.4;
+                const baseR = Math.max(2.5, Math.min(7, 5 / Math.sqrt(scale)));
+                const selectedId = selectedNode ? selectedNode.id : null;
+                const related = new Set();
+                if (selectedId) {
+                    related.add(selectedId);
+                    for (const e of graphData.edges) {
+                        const src = edgeEndpointId(e.source);
+                        const dst = edgeEndpointId(e.target);
+                        if (src === selectedId || dst === selectedId) {
+                            related.add(src);
+                            related.add(dst);
+                        }
+                    }
+                }
+
+                // Background color sync with theme
+                app.renderer.backgroundColor = hexInt(currentTheme.bg);
+
+                // --- EDGES ---
+                edgeGfx.clear();
+                for (const e of graphData.edges) {
+                    if (!e.source.x) continue;
+                    const dimS = searchFilter && !searchFilter(e.source);
+                    const dimT = searchFilter && !searchFilter(e.target);
+                    if (dimS && dimT) continue;
+                    const connected = selectedId && (edgeEndpointId(e.source) === selectedId || edgeEndpointId(e.target) === selectedId);
+                    const edgeColor = e.kind === 'calls-symbol' ? 0xffb000 : accentInt();
+                    const baseAlpha = e.kind === 'calls-symbol' ? 0.35 : 0.16;
+                    const edgeAlpha = selectedId ? (connected ? 0.9 : 0.025) : baseAlpha;
+                    const width = connected ? Math.max(1.2, 1.8 / scale) : Math.max(0.3, 0.8 / scale);
+                    edgeGfx.lineStyle(width, edgeColor, edgeAlpha);
+                    edgeGfx.moveTo(e.source.x, e.source.y);
+                    edgeGfx.lineTo(e.target.x, e.target.y);
+                }
+
+                // --- GLOW on selected ---
+                glowGfx.clear();
+                if (selectedNode && selectedNode.x) {
+                    const dotR = baseR * (1 + (selectedNode.importance || selectedNode.rank || 0));
+                    // Multi-ring glow effect
+                    for (let i = 4; i > 0; i--) {
+                        glowGfx.beginFill(accentInt(), 0.06 * i);
+                        glowGfx.drawCircle(selectedNode.x, selectedNode.y, dotR + (i * 5 / scale));
+                        glowGfx.endFill();
+                    }
+                    // Solid ring
+                    glowGfx.lineStyle(1.5 / scale, accentInt(), 0.9);
+                    glowGfx.drawCircle(selectedNode.x, selectedNode.y, dotR + 3 / scale);
+                }
+
+                // --- NODES ---
+                nodeGfx.clear();
+                for (const d of graphData.nodes) {
+                    if (!d.x) continue;
+                    const dimmedBySearch = searchFilter && !searchFilter(d);
+                    const dimmedBySelection = selectedId && !related.has(d.id);
+                    const alpha = dimmedBySearch || dimmedBySelection ? 0.07 : 1;
+                    const modeWeight = activeMode === 'calls' ? Math.min((d.inbound_calls || 0) / 4, 1.5) : (d.importance || d.rank || 0);
+                    const dotR = baseR * (1 + modeWeight);
+                    nodeGfx.beginFill(nodeColorInt(d), alpha);
+                    nodeGfx.drawCircle(d.x, d.y, dotR);
+                    nodeGfx.endFill();
+                }
+
+                // --- LABELS (only when zoomed in) ---
+                labelContainer.visible = showLabels;
+                if (showLabels) {
+                    // Create/reuse label sprites
+                    const seen = new Set();
+                    for (const d of graphData.nodes) {
+                        if (!d.x) continue;
+                        const dimmed = (searchFilter && !searchFilter(d)) || (selectedId && !related.has(d.id));
+                        if (dimmed) continue;
+                        seen.add(d.id);
+                        let label = labelMap.get(d.id);
+                        if (!label) {
+                            label = new PIXI.Text(d.label || d.id.split('/').pop(), {
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontSize: 9,
+                                fill: currentTheme.textMain,
+                                resolution: 2,
+                            });
+                            labelMap.set(d.id, label);
+                            labelContainer.addChild(label);
+                        }
+                        const modeWeight = activeMode === 'calls' ? Math.min((d.inbound_calls || 0) / 4, 1.5) : (d.importance || d.rank || 0);
+                        const dotR = baseR * (1 + modeWeight);
+                        label.x = d.x + dotR + 2;
+                        label.y = d.y - 5;
+                        label.scale.set(1 / scale);
+                        label.style.fill = (selectedNode && selectedNode.id === d.id)
+                            ? currentTheme.textBright : currentTheme.textMain;
+                        label.visible = true;
+                    }
+                    // Hide labels not in seen
+                    for (const [id, label] of labelMap) {
+                        if (!seen.has(id)) label.visible = false;
+                    }
+                }
+            }
+
+            function applyGraphMode(mode) {
+                if (mode === 'symbols' && rawSymbolNodes.length === 0) return;
+                if (mode === 'calls' && !rawSymbolEdges.some(e => e.kind === 'calls-symbol')) return;
+                activeMode = mode;
+                graphData = buildGraph(activeMode);
+                nodeCount = graphData.nodes.length;
+                selectedNode = null;
+                labelMap.clear();
+                labelContainer.removeChildren();
+                sim.nodes(graphData.nodes);
+                sim.force('link').links(graphData.edges);
+                sim.alpha(1).restart();
+                quadtree = d3.quadtree().x(d => d.x).y(d => d.y).addAll(graphData.nodes);
+                updateModeBadge();
+                updateStatsPanel();
+                refreshLegend();
+                d3.select('#node-info').html(emptyStateForMode(activeMode));
+                redrawPixi();
+            }
+
+            d3.selectAll('.mode-btn').on('click', function() {
+                if (this.disabled) return;
+                const mode = this.dataset.mode;
+                d3.selectAll('.mode-btn').classed('active', false);
+                d3.select(this).classed('active', true);
+                applyGraphMode(mode);
+            });
+
+            d3.select('#exported-only').on('change', function() {
+                state.exportedOnly = this.checked;
+                applyGraphMode(activeMode);
+            });
+
+            d3.select('#node-limit').on('change', function() {
+                state.nodeLimit = Number(this.value || 0);
+                applyGraphMode(activeMode);
+            });
+
+            // Quadtree for click/drag hit detection
+            let quadtree = d3.quadtree()
+                .x(d => d.x).y(d => d.y)
+                .addAll(graphData.nodes);
+
+            app.view.addEventListener('click', e => {
+                const rect = app.view.getBoundingClientRect();
+                const mx = (e.clientX - rect.left - pixiTransform.x) / pixiTransform.k;
+                const my = (e.clientY - rect.top - pixiTransform.y) / pixiTransform.k;
+                const found = quadtree.find(mx, my, 20 / pixiTransform.k);
+                selectedNode = found || null;
+                if (found) showInspector(found);
+                else d3.select('#node-info').html(emptyStateForMode(activeMode));
+                redrawPixi();
+            });
+
+            // Mousemove coords
+            app.view.addEventListener('mousemove', e => {
+                const rect = app.view.getBoundingClientRect();
+                d3.select('#coord-x').text(Math.round(e.clientX - rect.left));
+                d3.select('#coord-y').text(Math.round(e.clientY - rect.top));
+            });
+
+            // Sim tick — rebuild quadtree every 3 ticks for perf
+            let tickCount = 0;
+            sim.on('tick', () => {
+                tickCount++;
+                if (tickCount % 3 === 0 || sim.alpha() < 0.05) {
+                    quadtree = d3.quadtree().x(d => d.x).y(d => d.y).addAll(graphData.nodes);
+                }
+                redrawPixi();
+            });
+            sim.on('end', () => {
+                quadtree = d3.quadtree().x(d => d.x).y(d => d.y).addAll(graphData.nodes);
+                sim.stop(); redrawPixi();
+            });
+
+            // Drag
+            d3.select(app.view).call(
+                d3.drag()
+                    .subject(e => {
+                        const rect = app.view.getBoundingClientRect();
+                        const mx = (e.sourceEvent.clientX - rect.left - pixiTransform.x) / pixiTransform.k;
+                        const my = (e.sourceEvent.clientY - rect.top - pixiTransform.y) / pixiTransform.k;
+                        return quadtree.find(mx, my, 20 / pixiTransform.k);
+                    })
+                    .on('start', e => {
+                        if (!e.subject) return;
+                        if (!e.active) sim.alphaTarget(0.2).restart();
+                        e.subject.fx = e.subject.x; e.subject.fy = e.subject.y;
+                    })
+                    .on('drag', e => {
+                        if (!e.subject) return;
+                        const rect = app.view.getBoundingClientRect();
+                        e.subject.fx = (e.sourceEvent.clientX - rect.left - pixiTransform.x) / pixiTransform.k;
+                        e.subject.fy = (e.sourceEvent.clientY - rect.top - pixiTransform.y) / pixiTransform.k;
+                    })
+                    .on('end', e => {
+                        if (!e.subject) return;
+                        if (!e.active) sim.alphaTarget(0);
+                        e.subject.fx = null; e.subject.fy = null;
+                    })
+            );
+
+            redrawPixi();
+    </script>
+</body>
+</html>
