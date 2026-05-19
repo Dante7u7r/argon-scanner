@@ -1,0 +1,242 @@
+{
+  "overall_score": 0.9929,
+  "total_cases": 7,
+  "suites": {
+    "fixture_ts": {
+      "project": "fixture_ts",
+      "average_score": 0.9833,
+      "stats": {
+        "total_files": 12,
+        "total_connections": 15,
+        "total_symbols": 21,
+        "total_symbol_connections": 54,
+        "total_symbol_calls": 16,
+        "total_symbol_calls_imported": 14,
+        "total_symbol_calls_local": 2,
+        "unresolved_imports": 0,
+        "cache_hits": 0,
+        "timestamp": "2026-05-18 18:01:57.538797"
+      },
+      "cases": [
+        {
+          "task": "fix authentication bug when user logs in",
+          "score": 0.95,
+          "precision": 1.0,
+          "top_symbols": [
+            "src/models/user.ts::createUser",
+            "src/models/user.ts::User",
+            "src/services/userService.ts::loginUser",
+            "src/lib/auth.ts::authenticate",
+            "src/services/userService.ts::checkSession",
+            "src/lib/auth.ts::validateToken",
+            "src/lib/auth.ts::hashPassword",
+            "src/models/order.ts::calculateTotal",
+            "src/models/order.ts::Order",
+            "tests/auth.test.ts::testAuthenticate"
+          ],
+          "expected_found": [
+            "authenticate",
+            "loginUser",
+            "validateToken",
+            "hashPassword"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [
+            "calculateTotal"
+          ],
+          "budget_ok": true,
+          "context_tokens": 2639
+        },
+        {
+          "task": "add refund support to order cancellation",
+          "score": 1.0,
+          "precision": 1.0,
+          "top_symbols": [
+            "src/models/order.ts::Order",
+            "src/services/orderService.ts::placeOrder",
+            "src/services/orderService.ts::cancelOrder",
+            "src/lib/payment.ts::refundPayment",
+            "src/models/order.ts::calculateTotal",
+            "src/lib/payment.ts::processPayment",
+            "src/lib/cache.ts::cacheGet",
+            "src/lib/cache.ts::cacheSet",
+            "src/services/orderService.ts::cacheSet",
+            "src/services/orderService.ts::cacheGet"
+          ],
+          "expected_found": [
+            "cancelOrder",
+            "refundPayment",
+            "processPayment",
+            "placeOrder"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [],
+          "budget_ok": true,
+          "context_tokens": 2919
+        },
+        {
+          "task": "optimize cache invalidation strategy",
+          "score": 1.0,
+          "precision": 1.0,
+          "top_symbols": [
+            "src/lib/cache.ts::cacheGet",
+            "src/lib/cache.ts::cacheSet",
+            "src/lib/cache.ts::cacheInvalidate",
+            "src/services/orderService.ts::placeOrder",
+            "src/services/orderService.ts::cancelOrder",
+            "src/services/orderService.ts::cacheSet",
+            "src/services/orderService.ts::cacheGet"
+          ],
+          "expected_found": [
+            "cacheInvalidate",
+            "cacheGet",
+            "cacheSet"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [],
+          "budget_ok": true,
+          "context_tokens": 1906
+        }
+      ]
+    },
+    "fixture_python": {
+      "project": "fixture_python",
+      "average_score": 1.0,
+      "stats": {
+        "total_files": 11,
+        "total_connections": 7,
+        "total_symbols": 18,
+        "total_symbol_connections": 2,
+        "total_symbol_calls": 2,
+        "total_symbol_calls_imported": 0,
+        "total_symbol_calls_local": 2,
+        "unresolved_imports": 0,
+        "cache_hits": 0,
+        "timestamp": "2026-05-18 18:01:57.711253"
+      },
+      "cases": [
+        {
+          "task": "fix user authentication when email is empty",
+          "score": 1.0,
+          "precision": 1.0,
+          "top_symbols": [
+            "app/models/user.py::create_user",
+            "app/models/user.py::User",
+            "app/services/auth_service.py::authenticate",
+            "app/services/auth_service.py::ValueError"
+          ],
+          "expected_found": [
+            "authenticate",
+            "create_user",
+            "User"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [],
+          "budget_ok": true,
+          "context_tokens": 1142
+        },
+        {
+          "task": "fix order placement with wrong total calculation",
+          "score": 1.0,
+          "precision": 1.0,
+          "top_symbols": [
+            "app/models/order.py::calculate_total",
+            "app/models/order.py::Order",
+            "app/services/order_service.py::place_order",
+            "app/services/order_service.py::cancel_order",
+            "tests/test_order.py::test_place_order",
+            "app/services/order_service.py::cache_set"
+          ],
+          "expected_found": [
+            "place_order",
+            "calculate_total",
+            "Order"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [],
+          "budget_ok": true,
+          "context_tokens": 1586
+        }
+      ]
+    },
+    "fixture_java": {
+      "project": "fixture_java",
+      "average_score": 1.0,
+      "stats": {
+        "total_files": 5,
+        "total_connections": 0,
+        "total_symbols": 15,
+        "total_symbol_connections": 10,
+        "total_symbol_calls": 10,
+        "total_symbol_calls_imported": 0,
+        "total_symbol_calls_local": 10,
+        "unresolved_imports": 0,
+        "cache_hits": 0,
+        "timestamp": "2026-05-18 18:01:57.774750"
+      },
+      "cases": [
+        {
+          "task": "add email validation to authentication",
+          "score": 1.0,
+          "precision": 1.0,
+          "top_symbols": [
+            "src/main/java/com/app/models/User.java::getEmail",
+            "src/main/java/com/app/models/User.java::User",
+            "src/main/java/com/app/services/AuthService.java::authenticate",
+            "src/main/java/com/app/services/AuthService.java::AuthService"
+          ],
+          "expected_found": [
+            "authenticate",
+            "User",
+            "AuthService"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [],
+          "budget_ok": true,
+          "context_tokens": 1297
+        }
+      ]
+    },
+    "fixture_csharp": {
+      "project": "fixture_csharp",
+      "average_score": 1.0,
+      "stats": {
+        "total_files": 4,
+        "total_connections": 0,
+        "total_symbols": 13,
+        "total_symbol_connections": 11,
+        "total_symbol_calls": 11,
+        "total_symbol_calls_imported": 0,
+        "total_symbol_calls_local": 11,
+        "unresolved_imports": 0,
+        "cache_hits": 0,
+        "timestamp": "2026-05-18 18:01:57.809996"
+      },
+      "cases": [
+        {
+          "task": "fix order total calculation with empty items",
+          "score": 1.0,
+          "precision": 1.0,
+          "top_symbols": [
+            "Models/Order.cs::CalculateTotal",
+            "Services/OrderService.cs::PlaceOrder",
+            "Models/Order.cs::Order",
+            "Services/OrderService.cs::OrderService",
+            "Models/Order.cs::App",
+            "Services/OrderService.cs::App",
+            "Models/Order.cs::foreach"
+          ],
+          "expected_found": [
+            "CalculateTotal",
+            "PlaceOrder",
+            "Order"
+          ],
+          "expected_missing": [],
+          "forbidden_found": [],
+          "budget_ok": true,
+          "context_tokens": 2044
+        }
+      ]
+    }
+  }
+}

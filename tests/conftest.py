@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+# Exclude benchmark fixture directories from test collection
+collect_ignore_glob = ["tests/fixtures/*"]
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ARGON = ROOT / "argon.py"

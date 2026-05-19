@@ -10,15 +10,17 @@ import sys
 import json
 import os
 from collections import Counter
-from typing import Optional
+from typing import Dict, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:
-    print("[!] Dependencia faltante: mcp\n    pip install mcp\n", file=sys.stderr)
+from argon_deps import ensure as _ensure_dep
+
+_mcp_mod = _ensure_dep("mcp", "mcp", description="MCP server protocol")
+if _mcp_mod is None:
+    print("[!] No se pudo instalar 'mcp'. Ejecuta: pip install mcp", file=sys.stderr)
     sys.exit(1)
+from mcp.server.fastmcp import FastMCP
 
 try:
     from argon import ArgonEngine, TokenCounter, estimate_tokens
@@ -30,6 +32,13 @@ try:
     from argon_laravel import laravel_overview, laravel_routes, laravel_schema, laravel_recent_errors
 except ImportError:
     laravel_overview = laravel_routes = laravel_schema = laravel_recent_errors = None
+
+try:
+    from argon_semantic import SemanticIndex
+    _HAS_SEMANTIC = True
+except ImportError:
+    SemanticIndex = None
+    _HAS_SEMANTIC = False
 
 mcp = FastMCP(
     name="argon",
@@ -43,6 +52,8 @@ mcp = FastMCP(
 
 _GRAPH_CACHE: Optional[dict] = None
 _GRAPH_PATH = os.path.join(os.getcwd(), 'argon_graph.json')
+_SEMANTIC_INDEX = None
+_SEMANTIC_GRAPH_MTIME: Optional[float] = None
 
 
 def _load_graph() -> Optional[dict]:
@@ -381,6 +392,21 @@ def argon_focused_context(task_description: str, max_tokens: int = 4096) -> str:
     if not keywords:
         keywords = task_description.lower().split()[:5]
 
+    # Phase 2: Build semantic boost map if available
+    semantic_boost: Dict[str, float] = {}
+    if _HAS_SEMANTIC and SemanticIndex is not None and graph.get('symbols'):
+        global _SEMANTIC_INDEX, _SEMANTIC_GRAPH_MTIME
+        graph_mtime = graph.get('_mtime')
+        if _SEMANTIC_INDEX is None or _SEMANTIC_GRAPH_MTIME != graph_mtime:
+            _SEMANTIC_INDEX = SemanticIndex()
+            _SEMANTIC_INDEX.build_from_graph(graph)
+            _SEMANTIC_GRAPH_MTIME = graph_mtime
+        sem_results = _SEMANTIC_INDEX.query(task_description, top_k=30)
+        for sem_score, sym in sem_results:
+            file_id = sym.get('file', '')
+            if file_id:
+                semantic_boost[file_id] = max(semantic_boost.get(file_id, 0), sem_score * 5.0)
+
     # Score all files against keywords
     scored = []
     for node in graph['nodes']:
@@ -396,6 +422,8 @@ def argon_focused_context(task_description: str, max_tokens: int = 4096) -> str:
                 score += 1
         # Boost by importance
         score += node.get('importance', 0) * 2
+        # Phase 2: Semantic boost
+        score += semantic_boost.get(node['id'], 0)
         if score > 0:
             scored.append((score, node))
 
@@ -613,6 +641,103 @@ def argon_recent_errors(max_tokens: int = 4096) -> str:
     if laravel_recent_errors is None:
         return "Laravel adapter unavailable."
     return _json({"laravel": laravel_recent_errors(_graph_root_dir())}, max_tokens)
+
+
+# =========================================================================
+# PHASE 2: SEMANTIC SEARCH
+# =========================================================================
+
+@mcp.tool()
+def argon_semantic_search(query: str, top_k: int = 15, max_tokens: int = 2048) -> str:
+    """
+    Búsqueda semántica de símbolos por intención/concepto.
+    Usa embeddings locales para encontrar símbolos por significado,
+    no solo por coincidencia de palabras clave.
+
+    Args:
+        query: Concepto o intención (ej: 'cómo se guardan los usuarios', 'payment processing').
+        top_k: Máximo de resultados (default: 15).
+        max_tokens: Budget de tokens (default: 2048).
+    """
+    if not _HAS_SEMANTIC:
+        return "Semantic search unavailable. Install: pip install sentence-transformers (optional, TF-IDF fallback also works)"
+
+    graph = _load_graph()
+    if not graph:
+        return _no_graph_msg()
+    if not graph.get('symbols'):
+        return "No symbols in graph. Run: python argon.py . --precision"
+
+    global _SEMANTIC_INDEX, _SEMANTIC_GRAPH_MTIME
+    graph_mtime = graph.get('_mtime')
+    if _SEMANTIC_INDEX is None or _SEMANTIC_GRAPH_MTIME != graph_mtime:
+        _SEMANTIC_INDEX = SemanticIndex()
+        _SEMANTIC_INDEX.build_from_graph(graph)
+        _SEMANTIC_GRAPH_MTIME = graph_mtime
+
+    results = _SEMANTIC_INDEX.query(query, top_k=top_k)
+    if not results:
+        return f"No semantic matches for: '{query}'"
+
+    out = [f"SEMANTIC SEARCH: '{query}' (backend: {_SEMANTIC_INDEX.backend_name}, {len(results)} results):"]
+    for score, sym in results:
+        out.append(
+            f"  [{score:.3f}] {sym.get('id', '')}  ({sym.get('kind', '')})\n"
+            f"           file: {sym.get('file', '')}:{sym.get('start_line', 0)}"
+        )
+        if sym.get('signature'):
+            out.append(f"           sig: {sym['signature'][:80]}")
+    return _truncate("\n".join(out), max_tokens)
+
+
+# =========================================================================
+# PHASE 4: AST QUERY
+# =========================================================================
+
+@mcp.tool()
+def argon_ast_query(pattern: str, kind: str = "", max_tokens: int = 2048) -> str:
+    """
+    Busca símbolos por patrón en su firma/nombre. Permite encontrar
+    métodos por tipo de retorno, parámetros, o patrones de código.
+
+    Args:
+        pattern: Regex o texto a buscar en firmas y nombres (ej: 'Promise<User>', 'async.*save').
+        kind: Filtrar por tipo de símbolo: func, class, interface, etc. (vacío = todos).
+        max_tokens: Budget de tokens (default: 2048).
+    """
+    graph = _load_graph()
+    if not graph:
+        return _no_graph_msg()
+    if not graph.get('symbols'):
+        return "No symbols in graph. Run: python argon.py . --precision"
+
+    import re as _re
+    try:
+        pat = _re.compile(pattern, _re.IGNORECASE)
+    except _re.error as e:
+        return f"Invalid regex pattern: {e}"
+
+    kind_filter = kind.lower().strip() if kind else ''
+    results = []
+    for sym in graph['symbols']:
+        if kind_filter and sym.get('kind', '').lower() != kind_filter:
+            continue
+        searchable = f"{sym.get('name', '')} {sym.get('signature', '')}"
+        if pat.search(searchable):
+            results.append(sym)
+
+    if not results:
+        return f"No symbols matching pattern '{pattern}'" + (f" (kind={kind})" if kind else "")
+
+    out = [f"AST QUERY: /{pattern}/ {f'kind={kind} ' if kind else ''}({len(results)} matches):"]
+    for sym in results[:20]:
+        out.append(
+            f"  [{sym.get('kind', ''):8}] {sym.get('name', '')}  →  {sym.get('file', '')}:{sym.get('start_line', 0)}\n"
+            f"             sig: {sym.get('signature', '')[:100]}"
+        )
+    if len(results) > 20:
+        out.append(f"  ... +{len(results) - 20} more.")
+    return _truncate("\n".join(out), max_tokens)
 
 
 def main() -> None:

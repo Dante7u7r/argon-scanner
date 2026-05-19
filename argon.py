@@ -20,7 +20,12 @@ from typing import Dict, List, Any, Optional, Set, Tuple
 from dataclasses import dataclass, field, asdict
 from xml.sax.saxutils import escape as xml_escape
 
-# Tree-sitter: optional
+# ---------------------------------------------------------------------------
+# JIT Auto-Bootstrap: auto-install missing dependencies
+# ---------------------------------------------------------------------------
+from argon_deps import ensure as _ensure_dep
+
+# Tree-sitter
 _HAS_TREESITTER = False
 _HAS_TREESITTER_PROCESS = False
 ts_pack = None
@@ -30,25 +35,33 @@ try:
     _HAS_TREESITTER = True
     _HAS_TREESITTER_PROCESS = hasattr(ts_pack, 'process') and hasattr(ts_pack, 'ProcessConfig')
 except ImportError:
-    try:
-        from tree_sitter_languages import get_language, get_parser as ts_get_parser
+    # Attempt auto-install
+    _ts_core = _ensure_dep("tree-sitter", "tree_sitter", description="AST parser core")
+    _ts_pack = _ensure_dep("tree-sitter-language-pack", "tree_sitter_language_pack", description="AST language grammars")
+    if _ts_pack is not None:
+        ts_pack = _ts_pack
+        from tree_sitter_language_pack import get_language, get_parser as ts_get_parser
         _HAS_TREESITTER = True
-    except ImportError:
-        pass
+        _HAS_TREESITTER_PROCESS = hasattr(ts_pack, 'process') and hasattr(ts_pack, 'ProcessConfig')
+    else:
+        # Legacy fallback
+        try:
+            from tree_sitter_languages import get_language, get_parser as ts_get_parser
+            _HAS_TREESITTER = True
+        except ImportError:
+            pass
 
+# tiktoken
 _HAS_TIKTOKEN = False
-try:
-    import tiktoken
+tiktoken = _ensure_dep("tiktoken", "tiktoken", description="real token counting")
+if tiktoken is not None:
     _HAS_TIKTOKEN = True
-except ImportError:
-    tiktoken = None
 
+# pathspec
 _HAS_PATHSPEC = False
-try:
-    import pathspec
+pathspec = _ensure_dep("pathspec", "pathspec", description="gitignore parser")
+if pathspec is not None:
     _HAS_PATHSPEC = True
-except ImportError:
-    pathspec = None
 
 # =========================================================================
 # DATA MODELS
@@ -966,8 +979,9 @@ def _pagerank(node_ids: List[str], edges: List[Dict[str, str]], iterations: int 
     return {k: v / max_rank for k, v in rank.items()}
 
 class ArgonEngine:
-    def __init__(self, root_dir: str, precision: bool = False, model: str = "gpt-4.1"):
+    def __init__(self, root_dir: str, precision: bool = False, model: str = "gpt-4.1", output_dir: str = ""):
         self.root = os.path.abspath(root_dir)
+        self.output_dir = os.path.abspath(output_dir) if output_dir else ''
         self.precision = precision
         self.model = model
         self.token_counter = TokenCounter(model=model, strict=precision)
@@ -1010,7 +1024,8 @@ class ArgonEngine:
         )
 
     def _cache_path(self) -> str:
-        return os.path.join(self.root, '.argon_cache.json')
+        base = self.output_dir if self.output_dir else self.root
+        return os.path.join(base, '.argon_cache.json')
 
     def _load_parse_cache(self) -> Dict[str, Any]:
         try:
@@ -1176,7 +1191,9 @@ class ArgonEngine:
 
         symbol_nodes = self._build_symbol_graph(nodes, edges) if self.precision else []
         symbol_edges = self._resolve_symbol_edges(nodes, edges)[0] if self.precision else []
-        symbol_calls = [e for e in symbol_edges if e.get('kind') == 'calls-symbol']
+        symbol_calls = [e for e in symbol_edges if e.get('kind') in ('calls-symbol', 'calls-symbol-local')]
+        symbol_calls_imported = [e for e in symbol_edges if e.get('kind') == 'calls-symbol']
+        symbol_calls_local = [e for e in symbol_edges if e.get('kind') == 'calls-symbol-local']
 
         graph = {
             'root': os.path.basename(self.root),
@@ -1193,6 +1210,8 @@ class ArgonEngine:
                 'total_symbols': sum(len(n.symbols) for n in nodes),
                 'total_symbol_connections': len(symbol_edges),
                 'total_symbol_calls': len(symbol_calls),
+                'total_symbol_calls_imported': len(symbol_calls_imported),
+                'total_symbol_calls_local': len(symbol_calls_local),
                 'unresolved_imports': sum(len(n.unresolved_imports) for n in nodes),
                 'cache_hits': cache_hits,
                 'timestamp': str(datetime.datetime.now()),
@@ -1207,10 +1226,18 @@ class ArgonEngine:
         imported_names: Dict[str, int] = defaultdict(int)
         inbound_calls: Dict[str, int] = defaultdict(int)
         outbound_calls: Dict[str, int] = defaultdict(int)
+        inbound_calls_local: Dict[str, int] = defaultdict(int)
+        outbound_calls_local: Dict[str, int] = defaultdict(int)
         for edge in edges:
             incoming_by_file[edge['target']] += 1
         for edge in symbol_edges:
             if edge.get('kind') == 'calls-symbol':
+                inbound_calls[edge['target']] += 1
+                outbound_calls[edge['source']] += 1
+            elif edge.get('kind') == 'calls-symbol-local':
+                inbound_calls_local[edge['target']] += 1
+                outbound_calls_local[edge['source']] += 1
+                # Also count towards total inbound/outbound
                 inbound_calls[edge['target']] += 1
                 outbound_calls[edge['source']] += 1
             else:
@@ -1222,10 +1249,11 @@ class ArgonEngine:
             for sym in node.symbols:
                 sid = f"{node.id}::{sym.name}"
                 imported = imported_names.get(sid, 0)
-                rank = file_rank.get(node.id, 0) * 0.55
-                rank += (1.0 if sym.exported else 0.0) * 0.25
+                total_inbound = inbound_calls.get(sid, 0)
+                rank = file_rank.get(node.id, 0) * 0.50
+                rank += (1.0 if sym.exported else 0.0) * 0.20
                 rank += min(imported, 5) / 5 * 0.10
-                rank += min(inbound_calls.get(sid, 0), 5) / 5 * 0.10
+                rank += min(total_inbound, 8) / 8 * 0.20  # Calls now weight more
                 symbols.append({
                     'id': sid,
                     'name': sym.name,
@@ -1240,7 +1268,9 @@ class ArgonEngine:
                     'named_imports': imported,
                     'resolved_imports': resolved_counts.get(sid, 0),
                     'inbound_calls': inbound_calls.get(sid, 0),
+                    'inbound_calls_local': inbound_calls_local.get(sid, 0),
                     'outbound_calls': outbound_calls.get(sid, 0),
+                    'outbound_calls_local': outbound_calls_local.get(sid, 0),
                 })
         symbols.sort(key=lambda s: s['rank'], reverse=True)
         return symbols
@@ -1331,34 +1361,50 @@ class ArgonEngine:
 
         call_edges: List[Dict[str, Any]] = []
         seen: Set[Tuple[str, str, str]] = set()
+
         for node in nodes:
+            # --- Imported symbol call detection (original) ---
             local_targets = imports_by_file.get(node.id, [])
-            if not local_targets:
+            # --- Intra-file (local) symbol call detection (Phase 1) ---
+            local_symbol_map: Dict[str, str] = {}
+            for sym in node.symbols:
+                local_symbol_map[sym.name] = f"{node.id}::{sym.name}"
+
+            # Precompile call patterns for all callable names in this file's scope
+            callable_targets: List[Tuple[str, str, str, bool]] = []  # (name, target_sid, target_file, is_local)
+            for target in local_targets:
+                local = target.get('local', '')
+                if local and local != '*' and target.get('target'):
+                    callable_targets.append((local, target['target'], target['target'].split('::', 1)[0], False))
+            for sym_name, sym_sid in local_symbol_map.items():
+                callable_targets.append((sym_name, sym_sid, node.id, True))
+
+            if not callable_targets:
                 continue
+
             for sym in node.symbols:
                 source_sid = f"{node.id}::{sym.name}"
                 body = self._symbol_source(node, sym)
                 if not body:
                     continue
-                for target in local_targets:
-                    local = target['local']
-                    if not local or local == '*':
+                for callee_name, target_sid, target_file, is_local in callable_targets:
+                    # Don't record self-calls (a function calling itself is recursion, not a dependency edge)
+                    if target_sid == source_sid:
                         continue
-                    call_pat = re.compile(rf'\b{re.escape(local)}\s*\(')
+                    call_pat = re.compile(rf'\b{re.escape(callee_name)}\s*\(')
                     if not call_pat.search(body):
                         continue
-                    target_sid = target['target']
-                    key = (source_sid, target_sid, local)
-                    if target_sid and key not in seen:
+                    key = (source_sid, target_sid, callee_name)
+                    if key not in seen:
                         call_edges.append({
                             'source': source_sid,
                             'target': target_sid,
-                            'imported': target.get('imported', local),
-                            'local': local,
+                            'imported': callee_name if not is_local else callee_name,
+                            'local': callee_name,
                             'source_file': node.id,
-                            'target_file': target_sid.split('::', 1)[0],
+                            'target_file': target_file,
                             'line': sym.line,
-                            'kind': 'calls-symbol',
+                            'kind': 'calls-symbol' if not is_local else 'calls-symbol-local',
                         })
                         seen.add(key)
         return call_edges
@@ -1621,13 +1667,13 @@ class ArgonEngine:
         for seed_final, _, seed_id in seeds:
             for edge in incoming.get(seed_id, []):
                 source = edge.get('source')
-                if edge.get('kind') == 'calls-symbol':
+                if edge.get('kind') in ('calls-symbol', 'calls-symbol-local'):
                     add(source, seed_final * 0.70, 'callers')
                 else:
                     add(source, seed_final * 0.35, 'import_neighbors')
             for edge in outgoing.get(seed_id, []):
                 target = edge.get('target')
-                if edge.get('kind') == 'calls-symbol':
+                if edge.get('kind') in ('calls-symbol', 'calls-symbol-local'):
                     add(target, seed_final * 0.65, 'callees')
                 else:
                     add(target, seed_final * 0.30, 'import_neighbors')
@@ -1857,7 +1903,7 @@ def main():
     else:
         output_dir = target  # junto al proyecto (Opción A)
     try:
-        engine = ArgonEngine(target, precision=args.precision, model=args.model)
+        engine = ArgonEngine(target, precision=args.precision, model=args.model, output_dir=output_dir if args.output else '')
     except RuntimeError as e:
         print(f"[!] {e}")
         return

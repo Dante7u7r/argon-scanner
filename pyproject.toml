@@ -21,6 +21,9 @@ dev = [
     "pytest-cov>=7.0.0",
     "playwright>=1.59.0",
 ]
+semantic = [
+    "sentence-transformers>=3.0.0",
+]
 
 [project.scripts]
 argon = "argon:main"
@@ -28,3 +31,4 @@ argon-view = "argon_view:main"
 argon-watch = "argon_watch:main"
 argon-mcp = "argon_mcp:main"
 argon-bench = "argon_bench:main"
+argon-quality-bench = "argon_quality_bench:main"

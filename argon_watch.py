@@ -77,9 +77,23 @@ class ArgonSentinel:
                         continue
         return state
 
-    def rebuild(self):
+    def _diff_state(self, old: Dict[str, float], new: Dict[str, float]) -> Dict[str, list]:
+        """Compute what changed between two project states."""
+        old_keys = set(old.keys())
+        new_keys = set(new.keys())
+        added = sorted(new_keys - old_keys)
+        deleted = sorted(old_keys - new_keys)
+        modified = sorted(
+            path for path in old_keys & new_keys
+            if new[path] > old[path]
+        )
+        return {'added': added, 'deleted': deleted, 'modified': modified}
+
+    def rebuild(self, diff: Dict[str, list] = None):
         """Reconstruye grafo, contexto y HTML."""
+        t0 = time.time()
         graph = self.engine.build_graph()
+        build_time = time.time() - t0
 
         # 1. JSON
         with open(self.graph_path, 'w', encoding='utf-8') as f:
@@ -101,8 +115,28 @@ class ArgonSentinel:
         if ArgonVisualizer and os.path.exists(self.template_path):
             viz = ArgonVisualizer(self.graph_path, self.template_path)
             viz.render(self.html_path, open_browser=False)
-            print(f"[+] Visualizador actualizado: {self.html_path}")
-        
+
+        # 4. Report diff
+        if diff:
+            total_changes = len(diff['added']) + len(diff['deleted']) + len(diff['modified'])
+            if total_changes <= 5:
+                for path in diff['added']:
+                    rel = os.path.relpath(path, self.root)
+                    print(f"    + {rel}")
+                for path in diff['deleted']:
+                    rel = os.path.relpath(path, self.root)
+                    print(f"    - {rel}")
+                for path in diff['modified']:
+                    rel = os.path.relpath(path, self.root)
+                    print(f"    ~ {rel}")
+            else:
+                print(f"    {len(diff['added'])} added, {len(diff['modified'])} modified, {len(diff['deleted'])} deleted")
+
+        cache_hits = graph['stats'].get('cache_hits', 0)
+        total_files = graph['stats']['total_files']
+        parsed_fresh = total_files - cache_hits
+        print(f"    [{build_time:.2f}s] parsed {parsed_fresh}, cached {cache_hits}")
+
         return graph['stats']
 
     def _stats_line(self, stats: Dict[str, int]) -> str:
@@ -111,12 +145,13 @@ class ArgonSentinel:
             base += (
                 f", {stats.get('total_symbols', 0)} símbolos"
                 f", {stats.get('total_symbol_calls', 0)} calls"
+                f" ({stats.get('total_symbol_calls_local', 0)} local)"
                 f", {stats.get('unresolved_imports', 0)} unresolved"
             )
         return base
 
     def watch(self):
-        print(f"[*] Argon Sentinel v9.0 — Vigilando: {self.root}")
+        print(f"[*] Argon Sentinel v9.1 — Vigilando: {self.root}")
         print(f"[*] Intervalo: {self.interval}s | Precision: {'ON' if self.precision else 'OFF'} | Ctrl+C para detener")
         print()
 
@@ -135,19 +170,14 @@ class ArgonSentinel:
                 time.sleep(self.interval)
                 current_state = self.get_project_state()
 
-                changed = (
-                    len(current_state) != len(self.last_state) or
-                    any(
-                        path not in self.last_state or mtime > self.last_state[path]
-                        for path, mtime in current_state.items()
-                    )
-                )
+                diff = self._diff_state(self.last_state, current_state)
+                has_changes = any(diff.values())
 
-                if changed:
+                if has_changes:
                     timestamp = time.strftime('%H:%M:%S')
                     print(f"[*] Cambio detectado ({timestamp}). Actualizando...")
                     try:
-                        stats = self.rebuild()
+                        stats = self.rebuild(diff=diff)
                         self.last_state = current_state
                         print(f"[+] Actualizado: {self._stats_line(stats)}.")
                     except Exception as e:
