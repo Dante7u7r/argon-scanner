@@ -4,8 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "argon-architecture-scanner"
-version = "0.9.0"
-description = "Universal architecture scanner, Precision context selector, visualizer and MCP server."
+version = "0.9.1"
+description = "Zero-install AST Context Engine for AI Assistants. Compresses codebases by 99% using PageRank & Semantic Search."
+authors = [{ name = "Dante7u7r", email = "your.email@example.com" }]
+readme = "docs/README.md"
 requires-python = ">=3.10"
 dependencies = [
     "tiktoken>=0.12.0",
@@ -28,7 +30,9 @@ semantic = [
 [project.scripts]
 argon = "argon:main"
 argon-view = "argon_view:main"
-argon-watch = "argon_watch:main"
 argon-mcp = "argon_mcp:main"
-argon-bench = "argon_bench:main"
+argon-watch = "argon_watch:main"
 argon-quality-bench = "argon_quality_bench:main"
+
+[tool.setuptools]
+py-modules = ["argon", "argon_bench", "argon_deps", "argon_laravel", "argon_mcp", "argon_quality_bench", "argon_semantic", "argon_view", "argon_watch"]

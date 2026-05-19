@@ -1,0 +1,6 @@
+[console_scripts]
+argon = argon:main
+argon-mcp = argon_mcp:main
+argon-quality-bench = argon_quality_bench:main
+argon-view = argon_view:main
+argon-watch = argon_watch:main

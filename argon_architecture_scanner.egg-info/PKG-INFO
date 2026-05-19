@@ -1,4 +1,25 @@
+Metadata-Version: 2.4
+Name: argon-architecture-scanner
+Version: 0.9.1
+Summary: Zero-install AST Context Engine for AI Assistants. Compresses codebases by 99% using PageRank & Semantic Search.
+Author-email: Dante7u7r <your.email@example.com>
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: tiktoken>=0.12.0
+Requires-Dist: pathspec>=1.1.1
+Requires-Dist: tree-sitter>=0.25.2
+Requires-Dist: tree-sitter-language-pack>=0.10.0
+Requires-Dist: mcp>=1.27.1
+Provides-Extra: dev
+Requires-Dist: pytest>=9.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=7.0.0; extra == "dev"
+Requires-Dist: playwright>=1.59.0; extra == "dev"
+Provides-Extra: semantic
+Requires-Dist: sentence-transformers>=3.0.0; extra == "semantic"
+
 # ARGON — Universal Architecture Scanner
+
+> **ARGON is a Tier-S static analysis tool designed specifically for AI Coding Assistants.** It parses massive repositories using Tree-sitter, ranks symbols via Google PageRank, and uses local ML embeddings (sentence-transformers) to deliver surgical context. Save up to 99% of your LLM token context window.
 
 ARGON escanea proyectos de software y genera un grafo de arquitectura con:
 - **Símbolos** (clases, funciones, interfaces) vía Tree-sitter o regex

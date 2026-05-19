@@ -1,0 +1,13 @@
+tiktoken>=0.12.0
+pathspec>=1.1.1
+tree-sitter>=0.25.2
+tree-sitter-language-pack>=0.10.0
+mcp>=1.27.1
+
+[dev]
+pytest>=9.0.0
+pytest-cov>=7.0.0
+playwright>=1.59.0
+
+[semantic]
+sentence-transformers>=3.0.0
