@@ -8,16 +8,17 @@ ARGON escanea proyectos de software y genera un grafo de arquitectura con:
 - **Visualización interactiva** con D3.js (SVG voxels) o PixiJS/WebGL (GPU)
 - **MCP Server** para integración con asistentes IA
 - **Watch mode** para actualización automática en cambios
+- **Auto-Bootstrap JIT (Zero-Install):** Ejecuta el script. Todas las dependencias (AST, MCP, tokenizers) se autoinstalan en segundo plano si faltan.
 
-## Instalación
+## Uso (Plug & Play)
 
 ```bash
-pip install tree-sitter-language-pack  # opcional, para parser AST (~2MB)
-pip install mcp                         # opcional, para MCP server
+# Escaneo de precisión
+python argon.py . --precision
 
-python argon.py . --context             # escanear proyecto actual
+# Modo centinela (Watch)
+python argon_watch.py .
 ```
-
 ## Uso rápido
 
 ```bash
