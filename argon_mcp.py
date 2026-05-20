@@ -10,7 +10,7 @@ import sys
 import json
 import os
 from collections import Counter
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -23,7 +23,7 @@ if _mcp_mod is None:
 from mcp.server.fastmcp import FastMCP
 
 try:
-    from argon import ArgonEngine, TokenCounter, estimate_tokens
+    from argon import ArgonEngine, TokenCounter, estimate_tokens, resolve_precision_budget
 except ImportError:
     print("[!] Error: No se encontró argon.py.", file=sys.stderr)
     sys.exit(1)
@@ -91,7 +91,14 @@ def _graph_root_dir() -> str:
     return os.path.dirname(os.path.abspath(_GRAPH_PATH)) or os.getcwd()
 
 
-def _precision_context_json(graph: dict, task_description: str, max_tokens: int, model: str) -> str:
+def _precision_context_json(
+    graph: dict,
+    task_description: str,
+    max_tokens: int,
+    model: str,
+    budget_profile: str = "custom",
+) -> str:
+    max_tokens, budget_settings = resolve_precision_budget(max_tokens, budget_profile)
     engine = ArgonEngine(_graph_root_dir(), precision=False, model=model)
     selected = engine._select_precision_symbols(graph, task_description)
     selection_report = getattr(engine, '_last_selection_report', {})
@@ -102,31 +109,56 @@ def _precision_context_json(graph: dict, task_description: str, max_tokens: int,
         'task': task_description,
         'model': model,
         'max_tokens': max_tokens,
+        'budget_profile': budget_settings['name'],
         'used_tokens': 0,
         'stats': graph.get('stats', {}),
         'selection_report': selection_report,
+        'packaging_report': {
+            'full_code_symbols': 0,
+            'compact_symbols': 0,
+            'support_compacted_by_default': 0,
+        },
+        'layers': {'critical': [], 'workflow': [], 'support': []},
         'symbols': [],
         'omitted_symbols': 0,
     }
-    full_snippet_budget = int(max_tokens * 0.72)
+    full_snippet_budget = int(max_tokens * float(budget_settings['full_code_ratio']))
     omitted = 0
     for sym in selected:
+        tier = sym.get('context_tier', 'support')
         full = dict(sym)
         full['code'] = engine._read_symbol_snippet(sym)
-        compact = dict(sym)
+        compact = engine._compact_precision_symbol(sym)
         current_tokens = counter.count(json.dumps(payload, ensure_ascii=False, indent=2))
-        if current_tokens < full_snippet_budget:
+        full_limit = full_snippet_budget
+        if tier == 'critical' and payload['packaging_report']['full_code_symbols'] == 0:
+            full_limit = max(full_limit, max_tokens)
+        if tier != 'support' and current_tokens < full_limit:
             trial = dict(payload)
             trial['symbols'] = payload['symbols'] + [full]
+            trial['layers'] = {
+                tier: ids + ([full['id']] if tier == full.get('context_tier', 'support') else [])
+                for tier, ids in payload['layers'].items()
+            }
             trial['omitted_symbols'] = omitted
-            if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= full_snippet_budget:
+            if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= full_limit:
                 payload['symbols'].append(full)
+                payload['layers'].setdefault(full.get('context_tier', 'support'), []).append(full['id'])
+                payload['packaging_report']['full_code_symbols'] += 1
                 continue
         trial = dict(payload)
         trial['symbols'] = payload['symbols'] + [compact]
+        trial['layers'] = {
+            tier: ids + ([compact['id']] if tier == compact.get('context_tier', 'support') else [])
+            for tier, ids in payload['layers'].items()
+        }
         trial['omitted_symbols'] = omitted
         if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= max_tokens:
             payload['symbols'].append(compact)
+            payload['layers'].setdefault(compact.get('context_tier', 'support'), []).append(compact['id'])
+            payload['packaging_report']['compact_symbols'] += 1
+            if tier == 'support':
+                payload['packaging_report']['support_compacted_by_default'] += 1
         else:
             omitted += 1
 
@@ -135,13 +167,97 @@ def _precision_context_json(graph: dict, task_description: str, max_tokens: int,
     payload['used_tokens'] = counter.count(output)
     output = json.dumps(payload, ensure_ascii=False, indent=2)
     while counter.count(output) > max_tokens and payload['symbols']:
-        payload['symbols'].pop()
+        removed = payload['symbols'].pop()
+        tier = removed.get('context_tier', 'support')
+        if removed.get('id') in payload['layers'].get(tier, []):
+            payload['layers'][tier].remove(removed['id'])
+        if removed.get('code'):
+            payload['packaging_report']['full_code_symbols'] = max(0, payload['packaging_report']['full_code_symbols'] - 1)
+        else:
+            payload['packaging_report']['compact_symbols'] = max(0, payload['packaging_report']['compact_symbols'] - 1)
         payload['omitted_symbols'] += 1
         payload['used_tokens'] = 0
         output = json.dumps(payload, ensure_ascii=False, indent=2)
         payload['used_tokens'] = counter.count(output)
         output = json.dumps(payload, ensure_ascii=False, indent=2)
+    engine._fit_expansion_plan(
+        payload,
+        selected,
+        max_tokens,
+        counter=counter,
+        max_items=int(budget_settings['expansion_items']),
+    )
+    output = json.dumps(payload, ensure_ascii=False, indent=2)
+    payload['used_tokens'] = counter.count(output)
+    output = json.dumps(payload, ensure_ascii=False, indent=2)
     return output
+
+
+def _precision_layer_payload(
+    graph: dict,
+    task_description: str,
+    tier: str,
+    max_tokens: int,
+    model: str,
+    include_code: bool = True,
+) -> str:
+    allowed = {'critical', 'workflow', 'support'}
+    requested = tier.lower().strip()
+    if requested == 'all':
+        tiers = ['critical', 'workflow', 'support']
+    elif requested in allowed:
+        tiers = [requested]
+    else:
+        return f"Invalid tier '{tier}'. Use: critical, workflow, support, all."
+
+    engine = ArgonEngine(_graph_root_dir(), precision=False, model=model)
+    selected = engine._select_precision_symbols(graph, task_description)
+    counter = TokenCounter(model=model, strict=False)
+    payload: Dict[str, Any] = {
+        'repository': graph.get('root', ''),
+        'task': task_description,
+        'tier': requested,
+        'model': model,
+        'max_tokens': max_tokens,
+        'used_tokens': 0,
+        'selection_report': getattr(engine, '_last_selection_report', {}),
+        'layers': {name: [] for name in tiers},
+        'omitted_symbols': 0,
+    }
+
+    omitted = 0
+    for sym in selected:
+        sym_tier = sym.get('context_tier', 'support')
+        if sym_tier not in tiers:
+            continue
+        item = dict(sym)
+        if include_code and sym_tier != 'support':
+            item['code'] = engine._read_symbol_snippet(sym)
+        elif sym_tier == 'support':
+            item = engine._compact_precision_symbol(sym)
+        trial = dict(payload)
+        trial_layers = {name: list(items) for name, items in payload['layers'].items()}
+        trial_layers.setdefault(sym_tier, []).append(item)
+        trial['layers'] = trial_layers
+        trial['omitted_symbols'] = omitted
+        if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= max_tokens:
+            payload['layers'].setdefault(sym_tier, []).append(item)
+        else:
+            compact = dict(item)
+            compact.pop('code', None)
+            trial_layers = {name: list(items) for name, items in payload['layers'].items()}
+            trial_layers.setdefault(sym_tier, []).append(compact)
+            trial['layers'] = trial_layers
+            if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= max_tokens:
+                payload['layers'].setdefault(sym_tier, []).append(compact)
+            else:
+                omitted += 1
+
+    payload['omitted_symbols'] = omitted
+    output = json.dumps(payload, ensure_ascii=False, indent=2)
+    payload['used_tokens'] = counter.count(output)
+    output = json.dumps(payload, ensure_ascii=False, indent=2)
+    return _truncate(output, max_tokens)
 
 
 def _json(data: object, max_tokens: int = 4096, model: str = "gpt-4.1") -> str:
@@ -462,7 +578,12 @@ def argon_focused_context(task_description: str, max_tokens: int = 4096) -> str:
 
 
 @mcp.tool()
-def argon_precision_context(task_description: str, max_tokens: int = 4096, model: str = "gpt-4.1") -> str:
+def argon_precision_context(
+    task_description: str,
+    max_tokens: int = 4096,
+    model: str = "gpt-4.1",
+    budget_profile: str = "custom",
+) -> str:
     """
     Contexto precision basado en symbol graph cuando el grafo fue generado con --precision.
     Devuelve XML compacto con símbolos rankeados, líneas y firmas.
@@ -471,6 +592,7 @@ def argon_precision_context(task_description: str, max_tokens: int = 4096, model
         task_description: Tarea a resolver.
         max_tokens: Budget real si tiktoken está instalado.
         model: Modelo para conteo de tokens.
+        budget_profile: custom, micro, standard o deep.
     """
     graph = _load_graph()
     if not graph:
@@ -478,7 +600,33 @@ def argon_precision_context(task_description: str, max_tokens: int = 4096, model
     if not graph.get('precision') or not graph.get('symbols'):
         return "Precision graph not available. Run: python argon.py . --precision --task \"...\""
 
-    return _precision_context_json(graph, task_description, max_tokens, model)
+    return _precision_context_json(graph, task_description, max_tokens, model, budget_profile)
+
+
+@mcp.tool()
+def argon_context_layer(
+    task_description: str,
+    tier: str = "critical",
+    max_tokens: int = 2048,
+    model: str = "gpt-4.1",
+    include_code: bool = True,
+) -> str:
+    """
+    Devuelve solo una capa del contexto Precision para ahorrar tokens.
+
+    Args:
+        task_description: Tarea a resolver.
+        tier: critical, workflow, support o all.
+        max_tokens: Budget real si tiktoken está instalado.
+        model: Modelo para conteo de tokens.
+        include_code: Si false, devuelve solo metadata de símbolos.
+    """
+    graph = _load_graph()
+    if not graph:
+        return _no_graph_msg()
+    if not graph.get('precision') or not graph.get('symbols'):
+        return "Precision graph not available. Run: python argon.py . --precision --task \"...\""
+    return _precision_layer_payload(graph, task_description, tier, max_tokens, model, include_code)
 
 
 @mcp.tool()
@@ -489,6 +637,7 @@ def argon_rescan(
     task: str = "general repository understanding",
     max_tokens: int = 4096,
     output_format: str = "json",
+    budget_profile: str = "custom",
 ) -> str:
     """
     Regenera el grafo. Úsalo tras cambios estructurales.
@@ -514,6 +663,7 @@ def argon_rescan(
                 task=task,
                 max_tokens=max_tokens,
                 output_format=output_format if output_format in {'xml', 'json', 'markdown'} else 'json',
+                budget_profile=budget_profile,
             )
         else:
             engine.generate_context_report(graph, os.path.join(abs_path, 'ARGON.md'), max_tokens=max_tokens)
@@ -608,6 +758,15 @@ def argon_context_for_symbol(symbol: str, max_tokens: int = 2048, model: str = "
     sym["incoming"] = incoming.get(sid, [])[:20]
     sym["outgoing"] = outgoing.get(sid, [])[:20]
     return _json(sym, max_tokens, model=model)
+
+
+@mcp.tool()
+def argon_expand_symbol(symbol: str, max_tokens: int = 2048, model: str = "gpt-4.1") -> str:
+    """
+    Expande un símbolo concreto con código y relaciones directas.
+    Alias explícito para flujos incrementales: pedir primero critical y luego expandir.
+    """
+    return argon_context_for_symbol(symbol, max_tokens=max_tokens, model=model)
 
 
 @mcp.tool()

@@ -38,6 +38,28 @@ def test_cli_precision_writes_graph_context_and_view(universal_project: Path, tm
     assert "ARGON_OS" in view_path.read_text(encoding="utf-8")
 
 
+def test_cli_precision_budget_profile(universal_project: Path, tmp_path: Path):
+    result = run_argon(
+        universal_project,
+        tmp_path,
+        "--precision",
+        "--task",
+        "fix helper bug",
+        "--budget",
+        "9000",
+        "--budget-profile",
+        "micro",
+        "--format",
+        "json",
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    context = json.loads((tmp_path / "ARGON_PRECISION.json").read_text(encoding="utf-8"))
+    assert context["budget_profile"] == "micro"
+    assert context["max_tokens"] == 1500
+    assert context["used_tokens"] <= 1500
+
+
 def test_cli_precision_writes_xml_and_markdown_formats(universal_project: Path, tmp_path: Path):
     for fmt, filename, marker in [
         ("xml", "ARGON_PRECISION.xml", "<repository"),

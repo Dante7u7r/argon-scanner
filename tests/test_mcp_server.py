@@ -4,8 +4,11 @@ from pathlib import Path
 
 import anyio
 import pytest
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+
+mcp = pytest.importorskip("mcp")
+ClientSession = mcp.ClientSession
+StdioServerParameters = mcp.StdioServerParameters
+stdio_client = pytest.importorskip("mcp.client.stdio").stdio_client
 
 from conftest import ARGON_MCP, ROOT
 
@@ -59,6 +62,7 @@ def test_mcp_stdio_rescan_and_precision_context(universal_project: Path):
                 context_text = _tool_text(context)
                 assert '"precision": true' in context_text
                 assert "helper" in context_text.lower()
+                assert '"expansion_plan"' in context_text
 
                 overview = await session.call_tool("argon_overview", {"max_tokens": 1200})
                 assert "PROJECT:" in _tool_text(overview)

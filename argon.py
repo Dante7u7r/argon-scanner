@@ -156,6 +156,33 @@ STDLIB_NOISE = {
     'std', 'core', 'alloc', 'tokio', 'serde', 'anyhow', 'clap',
 }
 
+SYMBOL_NOISE = {
+    'ValueError', 'TypeError', 'RuntimeError', 'Exception', 'Error',
+    'Promise', 'Map', 'Set', 'Array', 'Object', 'String', 'Number',
+}
+
+PRECISION_BUDGET_PROFILES = {
+    'custom': {'tokens': None, 'full_code_ratio': 0.72, 'expansion_items': 8},
+    'micro': {'tokens': 1500, 'full_code_ratio': 0.62, 'expansion_items': 3},
+    'standard': {'tokens': 4096, 'full_code_ratio': 0.72, 'expansion_items': 8},
+    'deep': {'tokens': 8192, 'full_code_ratio': 0.80, 'expansion_items': 12},
+}
+
+
+def resolve_precision_budget(max_tokens: int, budget_profile: str = 'custom') -> Tuple[int, Dict[str, Any]]:
+    profile_name = (budget_profile or 'custom').lower().strip()
+    if profile_name not in PRECISION_BUDGET_PROFILES:
+        raise ValueError(
+            "budget_profile must be one of: "
+            + ", ".join(sorted(PRECISION_BUDGET_PROFILES))
+        )
+    profile = dict(PRECISION_BUDGET_PROFILES[profile_name])
+    tokens = profile.get('tokens')
+    resolved = int(tokens if tokens is not None else max_tokens)
+    profile['name'] = profile_name
+    profile['tokens'] = resolved
+    return resolved, profile
+
 # =========================================================================
 # TREE-SITTER PARSER (primary if available)
 # =========================================================================
@@ -395,6 +422,7 @@ _RE_EXPORT_DECL = re.compile(
 _RE_EXPORT_DEFAULT_ANON = re.compile(
     r'^\s*export\s+default\s+(?:async\s+)?(?:function|class)?\s*(?P<name>[\w$]+)?'
 )
+_RE_PY_FROM_IMPORT = re.compile(r'^\s*from\s+(?P<source>[\w.]+)\s+import\s+(?P<named>[\w,\s]+)')
 _RE_PHP_USE = re.compile(r'^\s*use\s+(?P<name>[A-Za-z_][\w\\]*)(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\s*;')
 _RE_PHP_NAMESPACE = re.compile(r'^\s*namespace\s+(?P<name>[A-Za-z_][\w\\]*)\s*;')
 _COMMENT_PATS = [
@@ -545,6 +573,17 @@ def _extract_import_records(lines: List[str]) -> Tuple[List[Dict[str, Any]], Lis
         if m:
             records.append({'source': m.group(1), 'line': i, 'names': [], 'kind': 'require'})
             continue
+        m = _RE_PY_FROM_IMPORT.match(line)
+        if m:
+            names = [name.strip() for name in m.group('named').split(',') if name.strip()]
+            records.append({
+                'source': m.group('source'),
+                'line': i,
+                'names': names,
+                'specifiers': [{'imported': name, 'local': name} for name in names],
+                'kind': 'import',
+            })
+            continue
         m = _RE_EXPORT_FROM.match(line)
         if m:
             names = ['*'] if m.group('body') == '*' else _split_named_imports(m.group('body').strip('{}'))
@@ -609,6 +648,22 @@ def _infer_symbol_end_line(lines: List[str], start_line: int) -> int:
         return start_line
     start_idx = start_line - 1
     first = lines[start_idx]
+    base_indent = len(first) - len(first.lstrip())
+    if first.rstrip().endswith(':'):
+        end_line = start_line
+        saw_child = False
+        for idx in range(start_idx + 1, len(lines)):
+            stripped = lines[idx].strip()
+            if not stripped or stripped.startswith('#'):
+                if saw_child:
+                    end_line = idx + 1
+                continue
+            indent = len(lines[idx]) - len(lines[idx].lstrip())
+            if indent <= base_indent:
+                break
+            saw_child = True
+            end_line = idx + 1
+        return end_line
     if '{' in first or any('{' in line for line in lines[start_idx:min(len(lines), start_idx + 3)]):
         depth = 0
         seen_open = False
@@ -620,7 +675,6 @@ def _infer_symbol_end_line(lines: List[str], start_line: int) -> int:
             depth -= line.count('}')
             if seen_open and depth <= 0:
                 return idx + 1
-    base_indent = len(first) - len(first.lstrip())
     for idx in range(start_idx + 1, len(lines)):
         stripped = lines[idx].strip()
         if not stripped:
@@ -1279,7 +1333,10 @@ class ArgonEngine:
         index: Dict[str, Dict[str, str]] = defaultdict(dict)
         for node in nodes:
             export_names = set(node.exports)
-            exported_symbols = [s for s in node.symbols if s.exported or s.name in export_names]
+            if node.id.endswith('.py') and not export_names:
+                exported_symbols = [s for s in node.symbols if not s.name.startswith('_')]
+            else:
+                exported_symbols = [s for s in node.symbols if s.exported or s.name in export_names]
             for sym in exported_symbols:
                 sid = f"{node.id}::{sym.name}"
                 index[node.id][sym.name] = sid
@@ -1329,6 +1386,8 @@ class ArgonEngine:
         lines = content.splitlines()
         start = max(1, sym.line)
         end = max(start, sym.end_line or sym.line)
+        if end == start and start <= len(lines):
+            end = _infer_symbol_end_line(lines, start)
         return "\n".join(lines[start - 1:end])
 
     def _local_import_targets(self, edge: Dict[str, Any], exports: Dict[str, Dict[str, str]]) -> List[Dict[str, str]]:
@@ -1353,6 +1412,11 @@ class ArgonEngine:
         exports: Dict[str, Dict[str, str]],
     ) -> List[Dict[str, Any]]:
         node_by_id = {n.id: n for n in nodes}
+        symbols_by_file_name: Dict[str, Dict[str, str]] = defaultdict(dict)
+        for node in nodes:
+            for sym in node.symbols:
+                symbols_by_file_name[node.id][sym.name] = f"{node.id}::{sym.name}"
+
         imports_by_file: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for edge in edges:
             if edge.get('kind') != 'import':
@@ -1379,14 +1443,68 @@ class ArgonEngine:
             for sym_name, sym_sid in local_symbol_map.items():
                 callable_targets.append((sym_name, sym_sid, node.id, True))
 
+            qualified_targets: Dict[Tuple[str, str], Tuple[str, str, bool]] = {}
+            for target in local_targets:
+                local = target.get('local', '')
+                target_sid = target.get('target', '')
+                if not local or not target_sid:
+                    continue
+                if target_sid == '*':
+                    target_file = next(
+                        (
+                            edge.get('target')
+                            for edge in edges
+                            if edge.get('source') == node.id
+                            and any(spec.get('local') == local and spec.get('imported') == '*' for spec in edge.get('specifiers', []))
+                        ),
+                        '',
+                    )
+                else:
+                    target_file = target_sid.split('::', 1)[0]
+                if not target_file:
+                    continue
+                for member_name, member_sid in symbols_by_file_name.get(target_file, {}).items():
+                    qualified_targets[(local, member_name)] = (member_sid, target_file, False)
+
+            for qualifier_name in local_symbol_map:
+                for member_name, member_sid in symbols_by_file_name.get(node.id, {}).items():
+                    qualified_targets[(qualifier_name, member_name)] = (member_sid, node.id, True)
+            for implicit_receiver in ('self', 'this'):
+                for member_name, member_sid in symbols_by_file_name.get(node.id, {}).items():
+                    qualified_targets[(implicit_receiver, member_name)] = (member_sid, node.id, True)
+
             if not callable_targets:
-                continue
+                if not qualified_targets:
+                    continue
 
             for sym in node.symbols:
                 source_sid = f"{node.id}::{sym.name}"
                 body = self._symbol_source(node, sym)
                 if not body:
                     continue
+                for (qualifier, member_name), (target_sid, target_file, is_local) in qualified_targets.items():
+                    if target_sid == source_sid:
+                        continue
+                    qualified_pat = re.compile(
+                        rf'\b{re.escape(qualifier)}\s*(?:\([^)]*\))?\s*\.\s*{re.escape(member_name)}\s*\('
+                    )
+                    if not qualified_pat.search(body):
+                        continue
+                    key = (source_sid, target_sid, f'{qualifier}.{member_name}')
+                    if key not in seen:
+                        call_edges.append({
+                            'source': source_sid,
+                            'target': target_sid,
+                            'imported': member_name,
+                            'local': f'{qualifier}.{member_name}',
+                            'source_file': node.id,
+                            'target_file': target_file,
+                            'line': sym.line,
+                            'kind': 'calls-symbol-local' if is_local else 'calls-symbol',
+                            'qualified': True,
+                        })
+                        seen.add(key)
+
                 for callee_name, target_sid, target_file, is_local in callable_targets:
                     # Don't record self-calls (a function calling itself is recursion, not a dependency edge)
                     if target_sid == source_sid:
@@ -1526,6 +1644,7 @@ class ArgonEngine:
         stop_words = {
             'the', 'a', 'an', 'is', 'are', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
             'and', 'or', 'not', 'this', 'that', 'it', 'i', 'we', 'you', 'need', 'want', 'make', 'add',
+            'when', 'while', 'during', 'after', 'before',
             'fix', 'update', 'change', 'el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'en', 'con',
             'por', 'para', 'que', 'como', 'es', 'son', 'hay', 'quiero', 'necesito', 'hacer', 'crear',
             'modificar', 'arreglar',
@@ -1533,7 +1652,33 @@ class ArgonEngine:
         words: List[str] = []
         for raw in re.findall(r'[\w@./-]+', task):
             words.extend(self._identifier_tokens(raw))
-        return list(dict.fromkeys(w for w in words if len(w) > 2 and w not in stop_words))
+        keywords = [w for w in words if len(w) > 2 and w not in stop_words]
+        expanded: List[str] = []
+        synonym_groups = {
+            'auth': {
+                'auth', 'authenticate', 'authentication', 'authenticated', 'authorise',
+                'authorize', 'authorization', 'login', 'logins', 'logged', 'logs', 'signin', 'session',
+            },
+            'login': {'login', 'logins', 'logged', 'logs', 'signin', 'auth', 'authenticate', 'authentication'},
+            'payment': {'payment', 'pay', 'paid', 'transaction', 'transactions', 'refund', 'refunded'},
+            'cache': {'cache', 'cached', 'caching', 'invalidation', 'invalidate', 'invalidated'},
+            'order': {'order', 'orders', 'checkout', 'cart'},
+            'placement': {'placement', 'place', 'placing', 'submit'},
+            'cancel': {'cancel', 'cancellation', 'cancelled', 'canceled'},
+            'total': {'total', 'sum', 'price', 'amount', 'calculate', 'calculation'},
+        }
+        reverse_synonyms: Dict[str, List[str]] = defaultdict(list)
+        for canonical, aliases in synonym_groups.items():
+            for alias in aliases:
+                if canonical not in reverse_synonyms[alias]:
+                    reverse_synonyms[alias].append(canonical)
+        for word in keywords:
+            expanded.append(word)
+            for canonical in reverse_synonyms.get(word, []):
+                expanded.append(canonical)
+                if canonical in {'total', 'placement'}:
+                    expanded.extend(sorted(synonym_groups.get(canonical, [])))
+        return list(dict.fromkeys(expanded))
 
     def _identifier_tokens(self, text: str) -> List[str]:
         text = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', text)
@@ -1553,6 +1698,55 @@ class ArgonEngine:
             out.extend(self._identifier_tokens(str(chunk)))
         return set(out)
 
+    def _symbol_match_profile(self, sym: Dict[str, Any], keywords: List[str]) -> Dict[str, Set[str]]:
+        task_tokens = set(keywords)
+        return {
+            'name': task_tokens & set(self._identifier_tokens(sym.get('name', ''))),
+            'file': task_tokens & set(self._identifier_tokens(sym.get('file', ''))),
+            'signature': task_tokens & set(self._identifier_tokens(sym.get('signature', ''))),
+            'all': task_tokens & self._symbol_tokens(sym),
+        }
+
+    def _is_noise_symbol_for_task(self, sym: Dict[str, Any]) -> bool:
+        name = str(sym.get('name', ''))
+        signature = str(sym.get('signature', '')).strip()
+        if name in SYMBOL_NOISE:
+            return True
+        if signature.startswith(('raise ', 'throw new ')) and name.endswith('Error'):
+            return True
+        declaration_prefixes = (
+            'def ', 'async def ', 'class ', 'export ', 'function ', 'async function ',
+            'const ', 'let ', 'var ', 'interface ', 'type ', 'enum ',
+            'public ', 'private ', 'protected ', 'static ', 'final ', 'void ',
+            'boolean ', 'string ', 'int ', 'long ', 'double ', 'float ', 'decimal ',
+            'namespace ', 'using ',
+        )
+        if (
+            str(sym.get('kind', '')).lower() == 'func'
+            and signature
+            and not signature.startswith(declaration_prefixes)
+            and (
+                int(sym.get('start_line') or 0) == int(sym.get('end_line') or 0)
+                or signature.endswith(')')
+                or ('{' not in signature and '=>' not in signature and not signature.endswith(':'))
+            )
+            and not sym.get('exported')
+        ):
+            return True
+        return False
+
+    def _symbol_token_cost(self, sym: Dict[str, Any], include_code: bool = True) -> int:
+        snippet = self._read_symbol_snippet(sym) if include_code else ""
+        preview = {
+            'id': sym.get('id', ''),
+            'file': sym.get('file', ''),
+            'kind': sym.get('kind', ''),
+            'signature': sym.get('signature', ''),
+            'reasons': sym.get('selection_reasons', []),
+            'code': snippet,
+        }
+        return max(1, self.token_counter.count(json.dumps(preview, ensure_ascii=False)))
+
     def _task_intents(self, task: str) -> Set[str]:
         tokens = set(self._task_keywords(task))
         intents = set()
@@ -1563,6 +1757,13 @@ class ArgonEngine:
         if tokens & {'type', 'types', 'interface', 'schema', 'model', 'typing', 'tipo', 'tipos'}:
             intents.add('types')
         return intents
+
+    def _task_focus_tokens(self, keywords: List[str]) -> Set[str]:
+        entity_tokens = {
+            'user', 'users', 'order', 'orders', 'item', 'items', 'model', 'models',
+            'data', 'support', 'bug', 'wrong', 'empty', 'strategy',
+        }
+        return {kw for kw in keywords if kw not in entity_tokens}
 
     def _is_generic_type_symbol(self, sym: Dict[str, Any]) -> bool:
         kind = str(sym.get('kind', '')).lower()
@@ -1587,18 +1788,22 @@ class ArgonEngine:
     def _score_symbol_for_task(self, sym: Dict[str, Any], keywords: List[str]) -> Tuple[float, int]:
         if not keywords:
             return 0.0, 0
-        tokens = self._symbol_tokens(sym)
-        name_tokens = set(self._identifier_tokens(sym.get('name', '')))
-        file_tokens = set(self._identifier_tokens(sym.get('file', '')))
-        signature_tokens = set(self._identifier_tokens(sym.get('signature', '')))
-        task_tokens = set(keywords)
-
-        overlap = task_tokens & tokens
+        profile = self._symbol_match_profile(sym, keywords)
+        overlap = profile['all']
         score = 0.0
-        score += len(task_tokens & name_tokens) * 5.0
-        score += len(task_tokens & file_tokens) * 3.0
-        score += len(task_tokens & signature_tokens) * 1.5
-        score += max(0, len(overlap) - len(task_tokens & name_tokens)) * 0.8
+        score += len(profile['name']) * 5.0
+        score += len(profile['file']) * 1.6
+        score += len(profile['signature']) * 1.5
+        score += max(0, len(overlap) - len(profile['name'])) * 0.6
+        focus_tokens = self._task_focus_tokens(keywords)
+        if (
+            focus_tokens & profile['file']
+            and str(sym.get('kind', '')).lower() == 'func'
+            and sym.get('exported')
+            and 'test' not in str(sym.get('file', '')).lower()
+            and 'spec' not in str(sym.get('file', '')).lower()
+        ):
+            score += 1.2
 
         lower_name = sym.get('name', '').lower()
         lower_file = sym.get('file', '').lower()
@@ -1606,8 +1811,96 @@ class ArgonEngine:
             if kw in lower_name:
                 score += 1.5
             if kw in lower_file:
-                score += 1.0
+                score += 0.45
         return score, len(overlap)
+
+    def _is_weak_file_only_match(self, sym: Dict[str, Any], keywords: List[str]) -> bool:
+        profile = self._symbol_match_profile(sym, keywords)
+        if profile['name'] or profile['signature']:
+            return False
+        if not profile['file']:
+            return False
+        return True
+
+    def _is_unrequested_test_symbol(self, sym: Dict[str, Any], intents: Set[str]) -> bool:
+        if 'tests' in intents:
+            return False
+        file_path = str(sym.get('file', '')).lower().replace('\\', '/')
+        return '/test' in f'/{file_path}' or file_path.endswith('_test.py') or file_path.endswith('.test.ts')
+
+    def _is_isolated_focus_match(self, sym: Dict[str, Any], keywords: List[str]) -> bool:
+        profile = self._symbol_match_profile(sym, keywords)
+        focus_tokens = self._task_focus_tokens(keywords)
+        if not (focus_tokens & (profile['name'] | profile['signature'])):
+            return False
+        structural_signal = (
+            int(sym.get('inbound_calls') or 0)
+            + int(sym.get('outbound_calls') or 0)
+            + int(sym.get('named_imports') or 0)
+            + int(sym.get('resolved_imports') or 0)
+        )
+        if structural_signal > 0:
+            return False
+        file_path = str(sym.get('file', '')).lower().replace('\\', '/')
+        distractor_segments = {'noise', 'noisy', 'mock', 'mocks', 'sample', 'samples', 'fixture', 'fixtures'}
+        return any(f'/{segment}/' in f'/{file_path}' for segment in distractor_segments)
+
+    def _support_symbol_factor(self, sym: Dict[str, Any], keywords: List[str], intents: Set[str]) -> float:
+        focus_tokens = self._task_focus_tokens(keywords)
+        file_path = str(sym.get('file', '')).lower()
+        if 'tests' not in intents and ('test' in file_path or 'spec' in file_path):
+            return 0.55
+        if not focus_tokens:
+            return 1.0
+        profile = self._symbol_match_profile(sym, keywords)
+        focus_overlap = focus_tokens & profile['all']
+        if focus_overlap:
+            return 1.0
+
+        kind = str(sym.get('kind', '')).lower()
+        name = str(sym.get('name', ''))
+        is_model = '/models/' in file_path or '\\models\\' in file_path or kind in {'class', 'interface', 'type', 'enum', 'struct'}
+        if is_model:
+            return 0.25
+        if profile['all'] and not focus_overlap:
+            return 0.58
+        if name and name[:1].isupper() and not profile['name']:
+            return 0.70
+        return 1.0
+
+    def _context_tier(self, sym: Dict[str, Any], keywords: List[str], intents: Set[str]) -> str:
+        profile = self._symbol_match_profile(sym, keywords)
+        focus_tokens = self._task_focus_tokens(keywords)
+        focus_name_or_signature = focus_tokens & (profile['name'] | profile['signature'])
+        file_path = str(sym.get('file', '')).lower()
+        kind = str(sym.get('kind', '')).lower()
+        is_test = 'test' in file_path or 'spec' in file_path
+        is_model = '/models/' in file_path or '\\models\\' in file_path or kind in {'class', 'interface', 'type', 'enum', 'struct'}
+        is_func = kind == 'func'
+        structural_signal = int(sym.get('inbound_calls') or 0) + int(sym.get('outbound_calls') or 0)
+
+        if is_test:
+            return 'workflow' if 'tests' in intents else 'support'
+        if is_func and focus_name_or_signature:
+            return 'critical'
+        if is_func and not is_model and (focus_tokens & profile['file'] and sym.get('exported')):
+            return 'critical'
+        if is_func and not is_model and profile['all'] and structural_signal > 0:
+            return 'workflow'
+        return 'support'
+
+    def _neighbor_score(self, sym_id: str, base_score: float, default_factor: float, symbols: Dict[str, Dict[str, Any]], keywords: List[str]) -> float:
+        sym = symbols.get(sym_id)
+        if not sym:
+            return 0.0
+        task_score, overlap_count = self._score_symbol_for_task(sym, keywords)
+        if overlap_count:
+            factor = default_factor
+        elif task_score > 0:
+            factor = default_factor * 0.75
+        else:
+            factor = min(default_factor, 0.035)
+        return max(base_score * factor, task_score * 0.35)
 
     def _select_precision_symbols(self, graph: Dict[str, Any], task: str) -> List[Dict[str, Any]]:
         keywords = self._task_keywords(task)
@@ -1631,11 +1924,30 @@ class ArgonEngine:
             sym = symbols.get(sym_id)
             if not sym:
                 return
+            if self._is_noise_symbol_for_task(sym):
+                report['noise_symbols_filtered'] = report.get('noise_symbols_filtered', 0) + 1
+                return
+            if self._is_unrequested_test_symbol(sym, intents):
+                report['unrequested_tests_filtered'] = report.get('unrequested_tests_filtered', 0) + 1
+                return
+            if 'bugfix' not in intents and self._is_weak_file_only_match(sym, keywords):
+                report['weak_file_matches_filtered'] = report.get('weak_file_matches_filtered', 0) + 1
+                return
+            if reason in {'callers', 'callees', 'import_neighbors'}:
+                profile = self._symbol_match_profile(sym, keywords)
+                tier = self._context_tier(sym, keywords, intents)
+                kind = str(sym.get('kind', '')).lower()
+                structural_model = kind in {'class', 'interface', 'type', 'enum', 'struct'}
+                if tier == 'support' and not profile['all'] and not structural_model:
+                    report['non_task_neighbors_filtered'] = report.get('non_task_neighbors_filtered', 0) + 1
+                    return
             current = candidates.get(sym_id)
             if current is None:
                 item = dict(sym)
                 item['selection_score'] = round(score, 6)
                 item['selection_reasons'] = [reason]
+                item['task_token_overlap'] = sorted(set(keywords) & self._symbol_tokens(sym))
+                item['context_tier'] = self._context_tier(sym, keywords, intents)
                 candidates[sym_id] = item
                 if reason in report:
                     report[reason] += 1
@@ -1656,8 +1968,23 @@ class ArgonEngine:
                 report['generic_types_penalized'] += 1
             graph_score = float(sym.get('rank', 0))
             call_score = min(int(sym.get('inbound_calls') or 0), 8) / 8
-            final = ((task_score * 0.55) + (call_score * 0.25) + (graph_score * 0.20)) * generic_penalty
+            support_factor = self._support_symbol_factor(sym, keywords, intents)
+            if support_factor < 1:
+                report['support_symbols_demoted'] = report.get('support_symbols_demoted', 0) + 1
+            final = ((task_score * 0.55) + (call_score * 0.25) + (graph_score * 0.20)) * generic_penalty * support_factor
             if task_score > 0:
+                if self._is_noise_symbol_for_task(sym):
+                    report['noise_symbols_filtered'] = report.get('noise_symbols_filtered', 0) + 1
+                    continue
+                if self._is_unrequested_test_symbol(sym, intents):
+                    report['unrequested_tests_filtered'] = report.get('unrequested_tests_filtered', 0) + 1
+                    continue
+                if 'bugfix' not in intents and self._is_weak_file_only_match(sym, keywords):
+                    report['weak_file_matches_filtered'] = report.get('weak_file_matches_filtered', 0) + 1
+                    continue
+                if self._is_isolated_focus_match(sym, keywords):
+                    report['isolated_focus_matches_filtered'] = report.get('isolated_focus_matches_filtered', 0) + 1
+                    continue
                 seed_scores.append((final, task_score, sym['id']))
                 add(sym['id'], final, 'direct_matches')
 
@@ -1670,13 +1997,13 @@ class ArgonEngine:
                 if edge.get('kind') in ('calls-symbol', 'calls-symbol-local'):
                     add(source, seed_final * 0.70, 'callers')
                 else:
-                    add(source, seed_final * 0.35, 'import_neighbors')
+                    add(source, self._neighbor_score(source, seed_final, 0.35, symbols, keywords), 'import_neighbors')
             for edge in outgoing.get(seed_id, []):
                 target = edge.get('target')
                 if edge.get('kind') in ('calls-symbol', 'calls-symbol-local'):
                     add(target, seed_final * 0.65, 'callees')
                 else:
-                    add(target, seed_final * 0.30, 'import_neighbors')
+                    add(target, self._neighbor_score(target, seed_final, 0.30, symbols, keywords), 'import_neighbors')
 
         if 'bugfix' in intents or 'tests' in intents:
             task_tokens = set(keywords)
@@ -1686,7 +2013,8 @@ class ArgonEngine:
                     continue
                 overlap = task_tokens & self._symbol_tokens(sym)
                 if overlap:
-                    add(sym['id'], 3.0 + len(overlap), 'tests')
+                    test_score = 3.0 + len(overlap) if 'tests' in intents else 1.2 + (len(overlap) * 0.5)
+                    add(sym['id'], test_score, 'tests')
 
         if not candidates:
             for sym in graph.get('symbols', [])[:80]:
@@ -1696,7 +2024,25 @@ class ArgonEngine:
 
         selected = sorted(
             candidates.values(),
-            key=lambda s: (s.get('selection_score', 0), s.get('rank', 0)),
+            key=lambda s: (
+                {'critical': 3, 'workflow': 2, 'support': 1}.get(s.get('context_tier', 'support'), 1),
+                s.get('selection_score', 0),
+                s.get('value_per_token', 0),
+                s.get('rank', 0),
+            ),
+            reverse=True,
+        )
+        for item in selected:
+            token_cost = self._symbol_token_cost(item)
+            item['token_cost'] = token_cost
+            item['value_per_token'] = round(float(item.get('selection_score', 0)) / max(1, token_cost), 6)
+        selected.sort(
+            key=lambda s: (
+                {'critical': 3, 'workflow': 2, 'support': 1}.get(s.get('context_tier', 'support'), 1),
+                s.get('selection_score', 0),
+                s.get('value_per_token', 0),
+                s.get('rank', 0),
+            ),
             reverse=True,
         )
         report['selected_candidates'] = len(selected)
@@ -1710,8 +2056,15 @@ class ArgonEngine:
             data['code'] = snippet
             return json.dumps(data, ensure_ascii=False, indent=2)
         if output_format == 'xml':
+            reasons = ",".join(symbol.get('selection_reasons', []))
+            overlap = ",".join(symbol.get('task_token_overlap', []))
             attrs = (
                 f'id="{xml_escape(symbol["id"])}" rank="{symbol.get("rank", 0)}" '
+                f'selection_score="{symbol.get("selection_score", 0)}" '
+                f'value_per_token="{symbol.get("value_per_token", 0)}" '
+                f'token_cost="{symbol.get("token_cost", 0)}" '
+                f'tier="{xml_escape(symbol.get("context_tier", "support"))}" '
+                f'reasons="{xml_escape(reasons)}" overlap="{xml_escape(overlap)}" '
                 f'file="{xml_escape(symbol["file"])}" start_line="{symbol.get("start_line", 0)}" '
                 f'end_line="{symbol.get("end_line", 0)}" kind="{xml_escape(symbol.get("kind", ""))}"'
             )
@@ -1726,8 +2079,117 @@ class ArgonEngine:
             f"### {symbol['id']} [rank:{symbol.get('rank', 0):.4f}]\n"
             f"- file: {symbol['file']}:{symbol.get('start_line', 0)}-{symbol.get('end_line', 0)}\n"
             f"- signature: {symbol.get('signature', '')}\n\n"
+            f"- why: {', '.join(symbol.get('selection_reasons', [])) or 'ranked fallback'}\n"
+            f"- tier: {symbol.get('context_tier', 'support')}\n"
+            f"- score: {symbol.get('selection_score', 0)} | value/token: {symbol.get('value_per_token', 0)} | token cost: {symbol.get('token_cost', 0)}\n\n"
             f"```{symbol.get('file', '').rsplit('.', 1)[-1]}\n{snippet}\n```\n"
         )
+
+    def _precision_layers(self, symbols: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        layers = {'critical': [], 'workflow': [], 'support': []}
+        for sym in symbols:
+            tier = sym.get('context_tier', 'support')
+            if tier not in layers:
+                tier = 'support'
+            layers[tier].append(sym)
+        return layers
+
+    def _compact_precision_symbol(self, sym: Dict[str, Any]) -> Dict[str, Any]:
+        keep = {
+            'id', 'name', 'kind', 'file', 'start_line', 'end_line', 'signature',
+            'context_tier', 'selection_score', 'selection_reasons', 'task_token_overlap',
+            'rank', 'inbound_calls', 'outbound_calls', 'token_cost', 'value_per_token',
+        }
+        return {key: value for key, value in sym.items() if key in keep}
+
+    def _precision_expansion_plan(
+        self,
+        selected: List[Dict[str, Any]],
+        full_code_ids: Set[str],
+        included_ids: Set[str],
+        max_items: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Small follow-up queue for incremental context instead of overpacking support."""
+        plan: List[Dict[str, Any]] = []
+        tier_weight = {'critical': 3, 'workflow': 2, 'support': 1}
+        candidates = sorted(
+            selected,
+            key=lambda sym: (
+                sym.get('id') not in included_ids,
+                tier_weight.get(sym.get('context_tier', 'support'), 1),
+                sym.get('selection_score', 0),
+                sym.get('value_per_token', 0),
+            ),
+            reverse=True,
+        )
+        for sym in candidates:
+            sid = sym.get('id', '')
+            if not sid or sid in full_code_ids:
+                continue
+            tier = sym.get('context_tier', 'support')
+            if sid in included_ids:
+                reason = 'compact_included_expand_if_needed'
+            else:
+                reason = 'omitted_due_to_budget'
+            if (
+                tier == 'support'
+                and reason == 'compact_included_expand_if_needed'
+                and not sym.get('task_token_overlap')
+            ):
+                continue
+            plan.append({
+                'symbol': sid,
+                'tier': tier,
+                'reason': reason,
+                'file': sym.get('file', ''),
+                'line': sym.get('start_line', 0),
+                'selection_score': sym.get('selection_score', 0),
+                'value_per_token': sym.get('value_per_token', 0),
+                'expand_with': f'argon_expand_symbol("{sid}")',
+            })
+            if len(plan) >= max_items:
+                break
+        return plan
+
+    def _fit_expansion_plan(
+        self,
+        payload: Dict[str, Any],
+        selected: List[Dict[str, Any]],
+        max_tokens: int,
+        counter: Optional[TokenCounter] = None,
+        max_items: int = 8,
+    ) -> None:
+        counter = counter or self.token_counter
+        full_code_ids = {sym.get('id', '') for sym in payload.get('symbols', []) if sym.get('code')}
+        included_ids = {sym.get('id', '') for sym in payload.get('symbols', [])}
+        plan = self._precision_expansion_plan(selected, full_code_ids, included_ids, max_items=max_items)
+        payload['expansion_plan'] = []
+        for item in plan:
+            trial = dict(payload)
+            trial['expansion_plan'] = payload['expansion_plan'] + [item]
+            trial_text = json.dumps(trial, ensure_ascii=False, indent=2)
+            if counter.count(trial_text) <= max_tokens:
+                payload['expansion_plan'].append(item)
+                continue
+            compact = {
+                'symbol': item['symbol'],
+                'tier': item['tier'],
+                'reason': item['reason'],
+                'expand_with': item['expand_with'],
+            }
+            trial['expansion_plan'] = payload['expansion_plan'] + [compact]
+            if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= max_tokens:
+                payload['expansion_plan'].append(compact)
+            elif not payload['expansion_plan']:
+                payload['expansion_plan'].append({
+                    'symbol': item['symbol'],
+                    'expand_with': item['expand_with'],
+                })
+                while counter.count(json.dumps(payload, ensure_ascii=False, indent=2)) > max_tokens:
+                    payload['expansion_plan'].pop()
+                    break
+            else:
+                break
 
     def generate_precision_context(
         self,
@@ -1736,7 +2198,9 @@ class ArgonEngine:
         task: str,
         max_tokens: int = 4096,
         output_format: str = 'xml',
+        budget_profile: str = 'custom',
     ) -> None:
+        max_tokens, budget_settings = resolve_precision_budget(max_tokens, budget_profile)
         output_format = output_format.lower()
         if output_format not in {'xml', 'json', 'markdown'}:
             raise ValueError("--format must be one of: xml, json, markdown")
@@ -1753,9 +2217,16 @@ class ArgonEngine:
                 'task': task,
                 'model': self.model,
                 'max_tokens': max_tokens,
+                'budget_profile': budget_settings['name'],
                 'used_tokens': 0,
                 'stats': graph['stats'],
                 'selection_report': selection_report,
+                'packaging_report': {
+                    'full_code_symbols': 0,
+                    'compact_symbols': 0,
+                    'support_compacted_by_default': 0,
+                },
+                'layers': {'critical': [], 'workflow': [], 'support': []},
                 'symbols': [],
                 'omitted_symbols': 0,
                 'unresolved_imports_summary': {
@@ -1766,29 +2237,47 @@ class ArgonEngine:
                     ][:50],
                 },
             }
-            full_snippet_budget = int(max_tokens * 0.72)
+            full_snippet_budget = int(max_tokens * float(budget_settings['full_code_ratio']))
             for sym in selected:
+                tier = sym.get('context_tier', 'support')
                 full = dict(sym)
                 full['code'] = self._read_symbol_snippet(sym)
-                compact = dict(sym)
+                compact = self._compact_precision_symbol(sym)
                 current_text = json.dumps(payload, ensure_ascii=False, indent=2)
                 current_tokens = self.token_counter.count(current_text)
 
-                if current_tokens < full_snippet_budget:
+                full_limit = full_snippet_budget
+                if tier == 'critical' and payload['packaging_report']['full_code_symbols'] == 0:
+                    full_limit = max(full_limit, max_tokens)
+                if tier != 'support' and current_tokens < full_limit:
                     trial = dict(payload)
                     trial['symbols'] = payload['symbols'] + [full]
+                    trial['layers'] = {
+                        tier: ids + ([full['id']] if tier == full.get('context_tier', 'support') else [])
+                        for tier, ids in payload['layers'].items()
+                    }
                     trial['omitted_symbols'] = omitted
                     trial_text = json.dumps(trial, ensure_ascii=False, indent=2)
-                    if self.token_counter.count(trial_text) <= full_snippet_budget:
+                    if self.token_counter.count(trial_text) <= full_limit:
                         payload['symbols'].append(full)
+                        payload['layers'].setdefault(full.get('context_tier', 'support'), []).append(full['id'])
+                        payload['packaging_report']['full_code_symbols'] += 1
                         continue
 
                 trial = dict(payload)
                 trial['symbols'] = payload['symbols'] + [compact]
+                trial['layers'] = {
+                    tier: ids + ([compact['id']] if tier == compact.get('context_tier', 'support') else [])
+                    for tier, ids in payload['layers'].items()
+                }
                 trial['omitted_symbols'] = omitted
                 trial_text = json.dumps(trial, ensure_ascii=False, indent=2)
                 if self.token_counter.count(trial_text) <= max_tokens:
                     payload['symbols'].append(compact)
+                    payload['layers'].setdefault(compact.get('context_tier', 'support'), []).append(compact['id'])
+                    payload['packaging_report']['compact_symbols'] += 1
+                    if tier == 'support':
+                        payload['packaging_report']['support_compacted_by_default'] += 1
                 else:
                     omitted += 1
 
@@ -1797,12 +2286,29 @@ class ArgonEngine:
             payload['used_tokens'] = self.token_counter.count(output)
             output = json.dumps(payload, ensure_ascii=False, indent=2)
             while self.token_counter.count(output) > max_tokens and payload['symbols']:
-                payload['symbols'].pop()
+                removed = payload['symbols'].pop()
+                tier = removed.get('context_tier', 'support')
+                if removed.get('id') in payload['layers'].get(tier, []):
+                    payload['layers'][tier].remove(removed['id'])
+                if removed.get('code'):
+                    payload['packaging_report']['full_code_symbols'] = max(0, payload['packaging_report']['full_code_symbols'] - 1)
+                else:
+                    payload['packaging_report']['compact_symbols'] = max(0, payload['packaging_report']['compact_symbols'] - 1)
                 payload['omitted_symbols'] += 1
                 payload['used_tokens'] = 0
                 output = json.dumps(payload, ensure_ascii=False, indent=2)
                 payload['used_tokens'] = self.token_counter.count(output)
                 output = json.dumps(payload, ensure_ascii=False, indent=2)
+
+            self._fit_expansion_plan(
+                payload,
+                selected,
+                max_tokens,
+                max_items=int(budget_settings['expansion_items']),
+            )
+            output = json.dumps(payload, ensure_ascii=False, indent=2)
+            payload['used_tokens'] = self.token_counter.count(output)
+            output = json.dumps(payload, ensure_ascii=False, indent=2)
 
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(output)
@@ -1813,7 +2319,7 @@ class ArgonEngine:
             header = (
                 f'<repository name="{xml_escape(graph["root"])}" precision="true">\n'
                 f'  <task>{xml_escape(task)}</task>\n'
-                f'  <budget model="{xml_escape(self.model)}" max_tokens="{max_tokens}" />\n'
+                f'  <budget model="{xml_escape(self.model)}" max_tokens="{max_tokens}" profile="{xml_escape(budget_settings["name"])}" />\n'
                 f'  <stats files="{graph["stats"]["total_files"]}" connections="{graph["stats"]["total_connections"]}" '
                 f'symbols="{graph["stats"].get("total_symbols", 0)}" unresolved_imports="{graph["stats"].get("unresolved_imports", 0)}" />\n'
                 f'  <selection direct_matches="{selection_report.get("direct_matches", 0)}" callers="{selection_report.get("callers", 0)}" '
@@ -1826,7 +2332,7 @@ class ArgonEngine:
             header = (
                 f"# ARGON PRECISION CONTEXT: {graph['root']}\n"
                 f"Task: {task}\n"
-                f"Model: {self.model} | Budget: {max_tokens}\n"
+                f"Model: {self.model} | Budget: {max_tokens} | Profile: {budget_settings['name']}\n"
                 f"Files: {graph['stats']['total_files']} | Connections: {graph['stats']['total_connections']} | "
                 f"Symbols: {graph['stats'].get('total_symbols', 0)} | Unresolved imports: {graph['stats'].get('unresolved_imports', 0)}\n\n"
                 f"Selection: direct={selection_report.get('direct_matches', 0)} callers={selection_report.get('callers', 0)} "
@@ -1837,28 +2343,91 @@ class ArgonEngine:
 
         budget = max_tokens - self.token_counter.count(header + footer)
         used = 0
-        for sym in selected:
-            block = self._precision_symbol_block(sym, output_format)
-            cost = self.token_counter.count(block)
-            if used + cost <= budget:
-                used_blocks.append(block)
-                used += cost
+        layers = self._precision_layers(selected)
+        full_code_ids: Set[str] = set()
+        included_ids: Set[str] = set()
+        for tier in ('critical', 'workflow', 'support'):
+            tier_symbols = layers[tier]
+            if not tier_symbols:
+                continue
+            if output_format == 'xml':
+                section_open = f'    <layer name="{tier}">\n'
+                section_close = f'    </layer>'
             else:
-                compact = dict(sym)
-                compact.pop('code', None)
-                compact_block = (
-                    json.dumps(compact, ensure_ascii=False)
-                    if output_format == 'json'
-                    else f'  <symbol-ref id="{xml_escape(sym["id"])}" file="{xml_escape(sym["file"])}" line="{sym.get("start_line", 0)}" />'
-                    if output_format == 'xml'
-                    else f"- {sym['id']} ({sym['file']}:{sym.get('start_line', 0)})\n"
-                )
-                compact_cost = self.token_counter.count(compact_block)
-                if used + compact_cost <= budget:
-                    used_blocks.append(compact_block)
-                    used += compact_cost
+                section_open = f"\n## {tier.upper()}\n"
+                section_close = ""
+            section_cost = self.token_counter.count(section_open + section_close)
+            if used + section_cost <= budget:
+                used_blocks.append(section_open.rstrip("\n"))
+                used += section_cost
+            else:
+                omitted += len(tier_symbols)
+                continue
+            for sym in tier_symbols:
+                if tier == 'support':
+                    block = (
+                        f'  <symbol-ref id="{xml_escape(sym["id"])}" tier="support" file="{xml_escape(sym["file"])}" line="{sym.get("start_line", 0)}" />'
+                        if output_format == 'xml'
+                        else f"- {sym['id']} ({sym['file']}:{sym.get('start_line', 0)}) [support]\n"
+                    )
                 else:
-                    omitted += 1
+                    block = self._precision_symbol_block(sym, output_format)
+                cost = self.token_counter.count(block)
+                if used + cost <= budget:
+                    used_blocks.append(block)
+                    used += cost
+                    included_ids.add(sym['id'])
+                    if tier != 'support':
+                        full_code_ids.add(sym['id'])
+                else:
+                    compact = dict(sym)
+                    compact.pop('code', None)
+                    compact_block = (
+                        json.dumps(compact, ensure_ascii=False)
+                        if output_format == 'json'
+                        else f'  <symbol-ref id="{xml_escape(sym["id"])}" file="{xml_escape(sym["file"])}" line="{sym.get("start_line", 0)}" />'
+                        if output_format == 'xml'
+                        else f"- {sym['id']} ({sym['file']}:{sym.get('start_line', 0)})\n"
+                    )
+                    compact_cost = self.token_counter.count(compact_block)
+                    if used + compact_cost <= budget:
+                        used_blocks.append(compact_block)
+                        used += compact_cost
+                        included_ids.add(sym['id'])
+                    else:
+                        omitted += 1
+            if section_close:
+                used_blocks.append(section_close)
+
+        plan_blocks: List[str] = []
+        expansion_plan = self._precision_expansion_plan(
+            selected,
+            full_code_ids,
+            included_ids,
+            max_items=int(budget_settings['expansion_items']),
+        )
+        if expansion_plan:
+            if output_format == 'xml':
+                plan_blocks.append('  <expansion-plan>')
+                for item in expansion_plan:
+                    plan_blocks.append(
+                        f'    <expand symbol="{xml_escape(item["symbol"])}" tier="{xml_escape(item["tier"])}" '
+                        f'reason="{xml_escape(item["reason"])}" tool="{xml_escape(item["expand_with"])}" />'
+                    )
+                plan_blocks.append('  </expansion-plan>')
+            else:
+                plan_blocks.append("\n## NEXT EXPANSIONS")
+                for item in expansion_plan:
+                    plan_blocks.append(
+                        f'- {item["symbol"]} [{item["tier"]}] via `{item["expand_with"]}`'
+                    )
+            while plan_blocks and used + self.token_counter.count("\n".join(plan_blocks)) > budget:
+                if len(plan_blocks) <= 2:
+                    plan_blocks = []
+                    break
+                plan_blocks.pop(-2 if output_format == 'xml' else -1)
+            if plan_blocks:
+                used_blocks.extend(plan_blocks)
 
         if output_format == 'xml':
             output = header + "\n".join(used_blocks)
@@ -1889,6 +2458,12 @@ def main():
     parser.add_argument('--view', action='store_true', help='Generar argon_view.html usando argon_template.html')
     parser.add_argument('--open-view', action='store_true', help='Abrir argon_view.html tras generarlo')
     parser.add_argument('--budget', type=int, default=4096, help='Token budget para ARGON.md (default: 4096)')
+    parser.add_argument(
+        '--budget-profile',
+        choices=sorted(PRECISION_BUDGET_PROFILES),
+        default='custom',
+        help='Perfil Precision opcional: micro=1500, standard=4096, deep=8192, custom=usa --budget',
+    )
     parser.add_argument('--compact', action='store_true', help='JSON compacto (sin symbols detallados)')
     parser.add_argument('--output', default=None, metavar='DIR',
                         help='Directorio de salida para ARGON.md y argon_graph.json '
@@ -1927,6 +2502,7 @@ def main():
                 task=task,
                 max_tokens=args.budget,
                 output_format=args.format,
+                budget_profile=args.budget_profile,
             )
         else:
             engine.generate_context_report(graph, os.path.join(output_dir, 'ARGON.md'), max_tokens=args.budget)

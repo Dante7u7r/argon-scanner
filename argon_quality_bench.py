@@ -11,11 +11,12 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from argon import ArgonEngine, TokenCounter
+from argon import ArgonEngine
+from argon_bench import score_graph
 
 
 # =========================================================================
@@ -171,6 +172,75 @@ def create_fixture_typescript(base: Path) -> Path:
         "}\n",
         encoding="utf-8",
     )
+
+    return project
+
+
+def create_fixture_typescript_noisy(base: Path) -> Path:
+    """Create a TypeScript fixture where textual search is swamped by distractors."""
+    project = base / "fixture_ts_noisy"
+    project.mkdir(exist_ok=True)
+
+    (project / "tsconfig.json").write_text(json.dumps({
+        "compilerOptions": {
+            "baseUrl": ".",
+            "paths": {"@core/*": ["src/core/*"], "@noise/*": ["src/noise/*"]},
+        }
+    }), encoding="utf-8")
+    (project / ".gitignore").write_text("dist/\nnode_modules/\n", encoding="utf-8")
+
+    core = project / "src" / "core"
+    noise = project / "src" / "noise"
+    tests = project / "tests"
+    for directory in (core, noise, tests):
+        directory.mkdir(parents=True, exist_ok=True)
+
+    (core / "session.ts").write_text(
+        "export interface Session {\n"
+        "  userId: string;\n"
+        "  token: string;\n"
+        "}\n\n"
+        "export function loadSession(token: string): Session | null {\n"
+        "  if (!token) return null;\n"
+        "  return { userId: 'u1', token };\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (core / "authFlow.ts").write_text(
+        "import { loadSession, Session } from './session';\n\n"
+        "export function validateLoginToken(token: string): boolean {\n"
+        "  return token.length > 10;\n"
+        "}\n\n"
+        "export function resolveAuthenticatedUser(token: string): Session | null {\n"
+        "  if (!validateLoginToken(token)) return null;\n"
+        "  return loadSession(token);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    (tests / "authFlow.test.ts").write_text(
+        "import { resolveAuthenticatedUser, validateLoginToken } from '@core/authFlow';\n\n"
+        "export function testResolveAuthenticatedUser() {\n"
+        "  return resolveAuthenticatedUser('very-long-token') !== null;\n"
+        "}\n\n"
+        "export function testValidateLoginToken() {\n"
+        "  return validateLoginToken('very-long-token') === true;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    for index in range(18):
+        (noise / f"authNoise{index}.ts").write_text(
+            f"export function authenticateNoise{index}(token: string): boolean {{\n"
+            f"  return token.includes('auth-{index}');\n"
+            "}\n\n"
+            f"export function loginNoise{index}(userId: string): string {{\n"
+            f"  return `login-noise-{index}:${{userId}}`;\n"
+            "}\n\n"
+            f"export function sessionNoise{index}(sessionId: string): string {{\n"
+            f"  return `session-noise-{index}:${{sessionId}}`;\n"
+            "}\n",
+            encoding="utf-8",
+        )
 
     return project
 
@@ -452,6 +522,18 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
     "fixture_ts": [
         {
             "task": "fix authentication bug when user logs in",
+            "must_include_ids": [
+                "src/lib/auth.ts::authenticate",
+                "src/services/userService.ts::loginUser",
+                "src/lib/auth.ts::validateToken",
+                "src/lib/auth.ts::hashPassword",
+            ],
+            "must_include_critical_ids": [
+                "src/lib/auth.ts::authenticate",
+                "src/services/userService.ts::loginUser",
+                "src/lib/auth.ts::validateToken",
+                "src/lib/auth.ts::hashPassword",
+            ],
             "expected_top_symbols": ["authenticate", "loginUser", "validateToken", "hashPassword"],
             "forbidden_top_symbols": ["cacheGet", "calculateTotal", "refundPayment"],
             "max_tokens": 3000,
@@ -459,6 +541,18 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
         },
         {
             "task": "add refund support to order cancellation",
+            "must_include_ids": [
+                "src/services/orderService.ts::cancelOrder",
+                "src/lib/payment.ts::refundPayment",
+                "src/lib/payment.ts::processPayment",
+                "src/services/orderService.ts::placeOrder",
+            ],
+            "must_include_critical_ids": [
+                "src/services/orderService.ts::cancelOrder",
+                "src/lib/payment.ts::refundPayment",
+                "src/lib/payment.ts::processPayment",
+                "src/services/orderService.ts::placeOrder",
+            ],
             "expected_top_symbols": ["cancelOrder", "refundPayment", "processPayment", "placeOrder"],
             "forbidden_top_symbols": ["authenticate", "hashPassword"],
             "max_tokens": 3000,
@@ -466,15 +560,52 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
         },
         {
             "task": "optimize cache invalidation strategy",
+            "must_include_ids": [
+                "src/lib/cache.ts::cacheInvalidate",
+                "src/lib/cache.ts::cacheGet",
+                "src/lib/cache.ts::cacheSet",
+            ],
+            "must_include_critical_ids": [
+                "src/lib/cache.ts::cacheInvalidate",
+                "src/lib/cache.ts::cacheGet",
+                "src/lib/cache.ts::cacheSet",
+            ],
             "expected_top_symbols": ["cacheInvalidate", "cacheGet", "cacheSet"],
             "forbidden_top_symbols": ["authenticate", "hashPassword", "User"],
             "max_tokens": 3000,
             "top_n": 10,
         },
     ],
+    "fixture_ts_noisy": [
+        {
+            "task": "fix authenticated user resolution when login token is invalid",
+            "must_include_ids": [
+                "src/core/authFlow.ts::resolveAuthenticatedUser",
+                "src/core/authFlow.ts::validateLoginToken",
+                "src/core/session.ts::loadSession",
+            ],
+            "must_include_critical_ids": [
+                "src/core/authFlow.ts::resolveAuthenticatedUser",
+                "src/core/authFlow.ts::validateLoginToken",
+                "src/core/session.ts::loadSession",
+            ],
+            "expected_top_symbols": ["resolveAuthenticatedUser", "validateLoginToken", "loadSession"],
+            "forbidden_top_symbols": ["authenticateNoise", "loginNoise", "sessionNoise"],
+            "max_tokens": 2500,
+            "top_n": 10,
+        },
+    ],
     "fixture_python": [
         {
             "task": "fix user authentication when email is empty",
+            "must_include_ids": [
+                "app/services/auth_service.py::authenticate",
+                "app/models/user.py::create_user",
+                "app/models/user.py::User",
+            ],
+            "must_include_critical_ids": [
+                "app/services/auth_service.py::authenticate",
+            ],
             "expected_top_symbols": ["authenticate", "create_user", "User"],
             "forbidden_top_symbols": ["cache_invalidate", "calculate_total"],
             "max_tokens": 3000,
@@ -482,6 +613,15 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
         },
         {
             "task": "fix order placement with wrong total calculation",
+            "must_include_ids": [
+                "app/services/order_service.py::place_order",
+                "app/models/order.py::calculate_total",
+                "app/models/order.py::Order",
+            ],
+            "must_include_critical_ids": [
+                "app/services/order_service.py::place_order",
+                "app/models/order.py::calculate_total",
+            ],
             "expected_top_symbols": ["place_order", "calculate_total", "Order"],
             "forbidden_top_symbols": ["authenticate", "hash_password"],
             "max_tokens": 3000,
@@ -491,6 +631,14 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
     "fixture_java": [
         {
             "task": "add email validation to authentication",
+            "must_include_ids": [
+                "src/main/java/com/app/services/AuthService.java::authenticate",
+                "src/main/java/com/app/models/User.java::User",
+                "src/main/java/com/app/services/AuthService.java::AuthService",
+            ],
+            "must_include_critical_ids": [
+                "src/main/java/com/app/services/AuthService.java::authenticate",
+            ],
             "expected_top_symbols": ["authenticate", "User", "AuthService"],
             "forbidden_top_symbols": ["cancelOrder", "OrderService"],
             "max_tokens": 3000,
@@ -500,6 +648,15 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
     "fixture_csharp": [
         {
             "task": "fix order total calculation with empty items",
+            "must_include_ids": [
+                "Models/Order.cs::CalculateTotal",
+                "Services/OrderService.cs::PlaceOrder",
+                "Models/Order.cs::Order",
+            ],
+            "must_include_critical_ids": [
+                "Models/Order.cs::CalculateTotal",
+                "Services/OrderService.cs::PlaceOrder",
+            ],
             "expected_top_symbols": ["CalculateTotal", "PlaceOrder", "Order"],
             "forbidden_top_symbols": ["Authenticate", "ValidateToken"],
             "max_tokens": 3000,
@@ -513,59 +670,9 @@ BENCHMARK_SPECS: Dict[str, List[Dict[str, Any]]] = {
 # SCORING
 # =========================================================================
 
-def _contains_any(text: str, needles: List[str]) -> bool:
-    low = text.lower()
-    return any(n.lower() in low for n in needles)
-
-
 def score_case(graph: Dict[str, Any], root_dir: str, spec: Dict[str, Any], model: str = "gpt-4.1") -> Dict[str, Any]:
     """Score a single benchmark case against the graph."""
-    engine = ArgonEngine(root_dir, precision=True, model=model)
-    selected = engine._select_precision_symbols(graph, spec["task"])
-    top_n = int(spec.get("top_n", 10))
-    top_ids = [sym["id"] for sym in selected[:top_n]]
-    top_names = [sym.get("name", "") for sym in selected[:top_n]]
-    top_text = " ".join(top_ids + top_names)
-
-    expected = spec.get("expected_top_symbols", [])
-    forbidden = spec.get("forbidden_top_symbols", [])
-    found = [e for e in expected if _contains_any(top_text, [e])]
-    forbidden_found = [f for f in forbidden if _contains_any(top_text, [f])]
-
-    precision = len(found) / max(1, len(expected))
-    forbidden_penalty = len(forbidden_found) / max(1, len(forbidden))
-
-    # Budget compliance
-    budget_ok = True
-    context_tokens = None
-    max_tokens = spec.get("max_tokens")
-    if max_tokens:
-        out_path = os.path.join(root_dir, ".argon_bench_tmp.json")
-        engine.generate_precision_context(
-            graph, out_path, task=spec["task"],
-            max_tokens=int(max_tokens), output_format="json",
-        )
-        text = Path(out_path).read_text(encoding="utf-8")
-        context_tokens = TokenCounter(model).count(text)
-        budget_ok = context_tokens <= int(max_tokens)
-        try:
-            os.remove(out_path)
-        except OSError:
-            pass
-
-    score = (precision * 0.75) + ((1 - forbidden_penalty) * 0.15) + (0.10 if budget_ok else 0.0)
-
-    return {
-        "task": spec["task"],
-        "score": round(score, 4),
-        "precision": round(precision, 4),
-        "top_symbols": top_ids[:top_n],
-        "expected_found": found,
-        "expected_missing": [e for e in expected if e not in found],
-        "forbidden_found": forbidden_found,
-        "budget_ok": budget_ok,
-        "context_tokens": context_tokens,
-    }
+    return score_graph(graph, root_dir, spec, model=model)
 
 
 def run_all_benchmarks(base_dir: str, model: str = "gpt-4.1") -> Dict[str, Any]:
@@ -575,6 +682,7 @@ def run_all_benchmarks(base_dir: str, model: str = "gpt-4.1") -> Dict[str, Any]:
 
     creators = {
         "fixture_ts": create_fixture_typescript,
+        "fixture_ts_noisy": create_fixture_typescript_noisy,
         "fixture_python": create_fixture_python,
         "fixture_java": create_fixture_java,
         "fixture_csharp": create_fixture_csharp,
@@ -583,6 +691,10 @@ def run_all_benchmarks(base_dir: str, model: str = "gpt-4.1") -> Dict[str, Any]:
     all_results: Dict[str, Any] = {}
     total_score = 0
     total_cases = 0
+    total_lift = 0.0
+    total_precision_lift = 0.0
+    total_budget_utilization = 0.0
+    total_guardrails = 0
 
     for fixture_name, specs in BENCHMARK_SPECS.items():
         creator = creators.get(fixture_name)
@@ -597,6 +709,12 @@ def run_all_benchmarks(base_dir: str, model: str = "gpt-4.1") -> Dict[str, Any]:
             result = score_case(graph, str(project_path), spec, model)
             case_results.append(result)
             total_score += result["score"]
+            total_lift += result.get("recall_lift_vs_best_baseline", 0.0)
+            total_precision_lift += result.get("precision_lift_vs_best_baseline", 0.0)
+            audit = result.get("context_audit", {})
+            total_budget_utilization += audit.get("budget_utilization") or 0.0
+            if audit.get("guardrails_ok"):
+                total_guardrails += 1
             total_cases += 1
 
         avg = sum(r["score"] for r in case_results) / max(1, len(case_results))
@@ -610,6 +728,10 @@ def run_all_benchmarks(base_dir: str, model: str = "gpt-4.1") -> Dict[str, Any]:
     overall = total_score / max(1, total_cases)
     return {
         "overall_score": round(overall, 4),
+        "average_recall_lift_vs_best_baseline": round(total_lift / max(1, total_cases), 4),
+        "average_precision_lift_vs_best_baseline": round(total_precision_lift / max(1, total_cases), 4),
+        "average_budget_utilization": round(total_budget_utilization / max(1, total_cases), 4),
+        "guardrail_pass_rate": round(total_guardrails / max(1, total_cases), 4),
         "total_cases": total_cases,
         "suites": all_results,
     }
@@ -638,17 +760,43 @@ def main() -> int:
         print(f"{'='*60}")
         for case in suite["cases"]:
             status = "OK" if case["score"] >= args.min_score else "FAIL"
-            print(f"  {status} [{case['score']:.2f}] {case['task']}")
+            print(
+                f"  {status} [{case['score']:.2f}] {case['task']} "
+                f"recall@budget={case.get('recall_at_budget', 0):.2f} "
+                f"critical_recall={case.get('critical_recall', 0):.2f} "
+                f"precision@top={case.get('precision_at_top', 0):.2f} "
+                f"precision@critical={case.get('precision_at_critical', 0):.2f} "
+                f"recall_lift={case.get('recall_lift_vs_best_baseline', 0):+.2f} "
+                f"precision_lift={case.get('precision_lift_vs_best_baseline', 0):+.2f}"
+            )
+            baselines = case.get("baselines", {})
+            if baselines:
+                bits = [
+                    f"{name}:recall={data.get('recall_at_top', 0):.2f}"
+                    for name, data in baselines.items()
+                ]
+                print(f"     Baselines: {' | '.join(bits)}")
             if case["expected_missing"]:
                 print(f"     MISSING: {', '.join(case['expected_missing'])}")
             if case["forbidden_found"]:
                 print(f"     FORBIDDEN: {', '.join(case['forbidden_found'])}")
             if case.get("context_tokens") is not None:
                 budget_str = "OK" if case["budget_ok"] else "OVER"
-                print(f"     Budget: {case['context_tokens']} tokens [{budget_str}]")
+                audit = case.get("context_audit", {})
+                print(
+                    f"     Budget: {case['context_tokens']} tokens [{budget_str}] "
+                    f"util={audit.get('budget_utilization', 0):.2f} "
+                    f"context_recall={audit.get('context_required_recall', 0):.2f} "
+                    f"reachable_recall={audit.get('required_reachable_recall', 0):.2f} "
+                    f"guardrails={'OK' if audit.get('guardrails_ok') else 'WARN'}"
+                )
 
     print(f"\n{'='*60}")
     print(f"  OVERALL: {results['overall_score']:.4f} ({results['total_cases']} cases)")
+    print(f"  AVG LIFT vs best baseline: {results['average_recall_lift_vs_best_baseline']:+.4f}")
+    print(f"  AVG PRECISION LIFT vs best baseline: {results['average_precision_lift_vs_best_baseline']:+.4f}")
+    print(f"  AVG BUDGET UTILIZATION: {results['average_budget_utilization']:.4f}")
+    print(f"  GUARDRAIL PASS RATE: {results['guardrail_pass_rate']:.4f}")
     passed = results["overall_score"] >= args.min_score
     print(f"  {'PASS' if passed else 'FAIL'} (min: {args.min_score})")
     print(f"{'='*60}")

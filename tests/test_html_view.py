@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+import pytest
+
+sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
 
 from conftest import run_argon
 
