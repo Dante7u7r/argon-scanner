@@ -13,6 +13,8 @@ import os
 import webbrowser
 from typing import Optional, Dict
 
+from argon_deps import ensure as _ensure_dep
+
 
 class ArgonVisualizer:
     def __init__(self, json_path: str, template_path: str):
@@ -81,9 +83,28 @@ class ArgonVisualizer:
 
         if open_browser:
             abs_path = os.path.abspath(output_path)
-            webbrowser.open(f"file://{abs_path}")
+            if not self._open_popup(abs_path):
+                webbrowser.open(f"file://{abs_path}")
 
         return True
+
+    def _open_popup(self, html_path: str) -> bool:
+        webview = _ensure_dep("pywebview", "webview", description="desktop popup webview")
+        if webview is None:
+            return False
+        try:
+            webview.create_window(
+                "ARGON View",
+                f"file://{html_path}",
+                width=1280,
+                height=860,
+                min_size=(960, 640),
+            )
+            webview.start()
+            return True
+        except Exception as e:
+            print(f"[!] No se pudo abrir pywebview, usando navegador: {e}")
+            return False
 
 
 def main():

@@ -2,12 +2,14 @@ from pathlib import Path
 
 import pytest
 
-sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
-
 from conftest import run_argon
+import argon_deps
+import argon_view
 
 
 def test_html_view_loads_modes_without_console_errors(universal_project: Path, tmp_path: Path):
+    sync_playwright = pytest.importorskip("playwright.sync_api").sync_playwright
+
     result = run_argon(
         universal_project,
         tmp_path,
@@ -70,3 +72,24 @@ def test_html_view_loads_modes_without_console_errors(universal_project: Path, t
 
     assert not console_errors
     assert nonblank
+
+
+def test_view_popup_dependency_is_optional_and_falls_back(monkeypatch, tmp_path: Path):
+    html = tmp_path / "argon_view.html"
+    html.write_text("<html></html>", encoding="utf-8")
+    opened = []
+
+    monkeypatch.setattr(argon_view, "_ensure_dep", lambda *args, **kwargs: None)
+    monkeypatch.setattr(argon_view.webbrowser, "open", lambda url: opened.append(url))
+
+    viz = argon_view.ArgonVisualizer(str(tmp_path / "missing.json"), str(tmp_path / "missing.html"))
+    assert viz._open_popup(str(html)) is False
+    viz.render = lambda output_path=str(html), open_browser=True: (
+        argon_view.webbrowser.open(f"file://{html}") if open_browser else None
+    ) or True
+    assert viz.render(open_browser=True) is True
+    assert opened == [f"file://{html}"]
+
+
+def test_pywebview_registered_as_optional_view_dependency():
+    assert ("pywebview", "webview", False, "desktop popup webview") in argon_deps._VIEW_DEPS

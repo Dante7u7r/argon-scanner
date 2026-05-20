@@ -32,6 +32,10 @@ _SEMANTIC_DEPS = [
     ("sentence-transformers",      "sentence_transformers",        True,  "semantic embedding AI model (~2GB with PyTorch)"),
 ]
 
+_VIEW_DEPS = [
+    ("pywebview",                  "webview",                      False, "desktop popup webview"),
+]
+
 
 # =========================================================================
 # INSTALLER
@@ -109,5 +113,16 @@ def ensure_semantic() -> dict:
     """
     results = {}
     for pip_name, import_name, heavy, desc in _SEMANTIC_DEPS:
+        results[import_name] = ensure(pip_name, import_name, heavy, desc)
+    return results
+
+
+def ensure_view() -> dict:
+    """
+    Ensure optional visualizer dependencies are available.
+    Returns a dict of {import_name: module_or_None}.
+    """
+    results = {}
+    for pip_name, import_name, heavy, desc in _VIEW_DEPS:
         results[import_name] = ensure(pip_name, import_name, heavy, desc)
     return results
