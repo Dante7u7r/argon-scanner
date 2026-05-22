@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "argon-architecture-scanner"
-version = "0.9.2"
+version = "0.9.3"
 description = "Pre-1.0 token-budgeted architecture context engine for AI coding assistants."
 authors = [{ name = "Dante7u7r" }]
 readme = "docs/README.md"
