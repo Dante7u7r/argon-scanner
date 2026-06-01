@@ -7,7 +7,6 @@ routes, migrations and logs so MCP clients can reason about a Laravel app safely
 """
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List

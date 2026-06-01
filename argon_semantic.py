@@ -21,22 +21,17 @@ from typing import Any, Dict, List, Optional, Tuple
 # BACKEND DETECTION (with JIT auto-install)
 # =========================================================================
 
-_BACKEND: Optional[str] = None
-_MODEL = None
-
 def _detect_backend() -> str:
     """Detect best available embedding backend. Auto-installs if missing."""
-    global _BACKEND, _MODEL
-
-    if _BACKEND is not None:
-        return _BACKEND
+    if hasattr(_detect_backend, '_backend') and _detect_backend._backend is not None:
+        return _detect_backend._backend
 
     # Try sentence-transformers (already installed?)
     try:
         from sentence_transformers import SentenceTransformer
-        _MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-        _BACKEND = 'sentence-transformers'
-        return _BACKEND
+        _detect_backend._model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        _detect_backend._backend = 'sentence-transformers'
+        return _detect_backend._backend
     except ImportError:
         pass
 
@@ -49,15 +44,15 @@ def _detect_backend() -> str:
         )
         if _st_mod is not None:
             from sentence_transformers import SentenceTransformer
-            _MODEL = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
-            _BACKEND = 'sentence-transformers'
-            return _BACKEND
+            _detect_backend._model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+            _detect_backend._backend = 'sentence-transformers'
+            return _detect_backend._backend
     except Exception:
         pass
 
     # Fallback: TF-IDF (always available, zero dependencies)
-    _BACKEND = 'tfidf'
-    return _BACKEND
+    _detect_backend._backend = 'tfidf'
+    return _detect_backend._backend
 
 
 # =========================================================================
@@ -154,15 +149,16 @@ def _cosine_sparse(a: Dict[str, float], b: Dict[str, float]) -> float:
 class SentenceTransformerIndex:
     """Embedding index using sentence-transformers."""
 
-    def __init__(self):
+    def __init__(self, model):
         self.documents: List[Dict[str, Any]] = []
         self.embeddings = None  # numpy array
+        self._model = model
 
     def build(self, symbols: List[Dict[str, Any]]) -> None:
         import numpy as np
         self.documents = symbols
         texts = [_symbol_text(s) for s in symbols]
-        self.embeddings = _MODEL.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+        self.embeddings = self._model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
         # Normalize
         norms = np.linalg.norm(self.embeddings, axis=1, keepdims=True)
         norms[norms == 0] = 1
@@ -170,7 +166,7 @@ class SentenceTransformerIndex:
 
     def query(self, text: str, top_k: int = 20) -> List[Tuple[float, Dict[str, Any]]]:
         import numpy as np
-        q = _MODEL.encode([text], convert_to_numpy=True)
+        q = self._model.encode([text], convert_to_numpy=True)
         q = q / (np.linalg.norm(q) or 1)
         scores = (self.embeddings @ q.T).flatten()
         top_indices = np.argsort(scores)[::-1][:top_k]
@@ -247,7 +243,7 @@ class SemanticIndex:
     def __init__(self):
         self.backend_name = _detect_backend()
         if self.backend_name == 'sentence-transformers':
-            self._index = SentenceTransformerIndex()
+            self._index = SentenceTransformerIndex(_detect_backend._model)
         elif self.backend_name == 'ollama':
             self._index = OllamaIndex()
         else:

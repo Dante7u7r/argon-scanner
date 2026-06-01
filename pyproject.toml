@@ -15,6 +15,7 @@ dependencies = [
     "tree-sitter>=0.25.2",
     "tree-sitter-language-pack>=0.10.0",
     "mcp>=1.27.1",
+    "watchdog>=6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -22,17 +23,33 @@ dev = [
     "pytest>=9.0.0",
     "pytest-cov>=7.0.0",
     "playwright>=1.59.0",
+    "ruff>=0.11.0",
+    "mypy>=1.15.0",
 ]
 semantic = [
     "sentence-transformers>=3.0.0",
 ]
 
 [project.scripts]
-argon = "argon:main"
+argon = "argon.main:main"
 argon-view = "argon_view:main"
 argon-mcp = "argon_mcp:main"
 argon-watch = "argon_watch:main"
 argon-quality-bench = "argon_quality_bench:main"
 
+[tool.setuptools.packages.find]
+include = ["argon*"]
+
 [tool.setuptools]
-py-modules = ["argon", "argon_bench", "argon_deps", "argon_laravel", "argon_mcp", "argon_quality_bench", "argon_semantic", "argon_view", "argon_watch"]
+py-modules = ["argon_bench", "argon_deps", "argon_laravel", "argon_mcp", "argon_quality_bench", "argon_semantic", "argon_view", "argon_watch"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

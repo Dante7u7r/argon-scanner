@@ -9,6 +9,7 @@ Token-budgeted queries. Usa Precision context cuando el grafo lo soporta.
 import sys
 import json
 import os
+import inspect
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
@@ -23,7 +24,7 @@ if _mcp_mod is None:
 from mcp.server.fastmcp import FastMCP
 
 try:
-    from argon import ArgonEngine, TokenCounter, estimate_tokens, resolve_precision_budget
+    from argon import ArgonEngine, TokenCounter, estimate_tokens
 except ImportError:
     print("[!] Error: No se encontró argon.py.", file=sys.stderr)
     sys.exit(1)
@@ -98,99 +99,8 @@ def _precision_context_json(
     model: str,
     budget_profile: str = "custom",
 ) -> str:
-    max_tokens, budget_settings = resolve_precision_budget(max_tokens, budget_profile)
     engine = ArgonEngine(_graph_root_dir(), precision=False, model=model)
-    selected = engine._select_precision_symbols(graph, task_description)
-    selection_report = getattr(engine, '_last_selection_report', {})
-    counter = TokenCounter(model=model, strict=False)
-    payload = {
-        'repository': graph.get('root', ''),
-        'precision': True,
-        'task': task_description,
-        'model': model,
-        'max_tokens': max_tokens,
-        'budget_profile': budget_settings['name'],
-        'used_tokens': 0,
-        'stats': graph.get('stats', {}),
-        'selection_report': selection_report,
-        'packaging_report': {
-            'full_code_symbols': 0,
-            'compact_symbols': 0,
-            'support_compacted_by_default': 0,
-        },
-        'layers': {'critical': [], 'workflow': [], 'support': []},
-        'symbols': [],
-        'omitted_symbols': 0,
-    }
-    full_snippet_budget = int(max_tokens * float(budget_settings['full_code_ratio']))
-    omitted = 0
-    for sym in selected:
-        tier = sym.get('context_tier', 'support')
-        full = dict(sym)
-        full['code'] = engine._read_symbol_snippet(sym)
-        compact = engine._compact_precision_symbol(sym)
-        current_tokens = counter.count(json.dumps(payload, ensure_ascii=False, indent=2))
-        full_limit = full_snippet_budget
-        if tier == 'critical' and payload['packaging_report']['full_code_symbols'] == 0:
-            full_limit = max(full_limit, max_tokens)
-        if tier != 'support' and current_tokens < full_limit:
-            trial = dict(payload)
-            trial['symbols'] = payload['symbols'] + [full]
-            trial['layers'] = {
-                tier: ids + ([full['id']] if tier == full.get('context_tier', 'support') else [])
-                for tier, ids in payload['layers'].items()
-            }
-            trial['omitted_symbols'] = omitted
-            if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= full_limit:
-                payload['symbols'].append(full)
-                payload['layers'].setdefault(full.get('context_tier', 'support'), []).append(full['id'])
-                payload['packaging_report']['full_code_symbols'] += 1
-                continue
-        trial = dict(payload)
-        trial['symbols'] = payload['symbols'] + [compact]
-        trial['layers'] = {
-            tier: ids + ([compact['id']] if tier == compact.get('context_tier', 'support') else [])
-            for tier, ids in payload['layers'].items()
-        }
-        trial['omitted_symbols'] = omitted
-        if counter.count(json.dumps(trial, ensure_ascii=False, indent=2)) <= max_tokens:
-            payload['symbols'].append(compact)
-            payload['layers'].setdefault(compact.get('context_tier', 'support'), []).append(compact['id'])
-            payload['packaging_report']['compact_symbols'] += 1
-            if tier == 'support':
-                payload['packaging_report']['support_compacted_by_default'] += 1
-        else:
-            omitted += 1
-
-    payload['omitted_symbols'] = omitted
-    output = json.dumps(payload, ensure_ascii=False, indent=2)
-    payload['used_tokens'] = counter.count(output)
-    output = json.dumps(payload, ensure_ascii=False, indent=2)
-    while counter.count(output) > max_tokens and payload['symbols']:
-        removed = payload['symbols'].pop()
-        tier = removed.get('context_tier', 'support')
-        if removed.get('id') in payload['layers'].get(tier, []):
-            payload['layers'][tier].remove(removed['id'])
-        if removed.get('code'):
-            payload['packaging_report']['full_code_symbols'] = max(0, payload['packaging_report']['full_code_symbols'] - 1)
-        else:
-            payload['packaging_report']['compact_symbols'] = max(0, payload['packaging_report']['compact_symbols'] - 1)
-        payload['omitted_symbols'] += 1
-        payload['used_tokens'] = 0
-        output = json.dumps(payload, ensure_ascii=False, indent=2)
-        payload['used_tokens'] = counter.count(output)
-        output = json.dumps(payload, ensure_ascii=False, indent=2)
-    engine._fit_expansion_plan(
-        payload,
-        selected,
-        max_tokens,
-        counter=counter,
-        max_items=int(budget_settings['expansion_items']),
-    )
-    output = json.dumps(payload, ensure_ascii=False, indent=2)
-    payload['used_tokens'] = counter.count(output)
-    output = json.dumps(payload, ensure_ascii=False, indent=2)
-    return output
+    return engine._build_precision_json_payload(graph, task_description, max_tokens, budget_profile)
 
 
 def _precision_layer_payload(
@@ -899,13 +809,132 @@ def argon_ast_query(pattern: str, kind: str = "", max_tokens: int = 2048) -> str
     return _truncate("\n".join(out), max_tokens)
 
 
+_TOOL_NAMES = [
+    "argon_overview",
+    "argon_query",
+    "argon_deps",
+    "argon_search",
+    "argon_focused_context",
+    "argon_precision_context",
+    "argon_context_layer",
+    "argon_rescan",
+    "argon_find_related",
+    "argon_trace_callers",
+    "argon_trace_callees",
+    "argon_context_for_symbol",
+    "argon_expand_symbol",
+    "argon_framework_overview",
+    "argon_laravel_routes",
+    "argon_laravel_schema",
+    "argon_recent_errors",
+    "argon_semantic_search",
+    "argon_ast_query",
+]
+
+
+def _json_schema_for_tool(func) -> Dict[str, Any]:
+    properties: Dict[str, Any] = {}
+    required: List[str] = []
+    for name, param in inspect.signature(func).parameters.items():
+        annotation = param.annotation
+        schema_type = "string"
+        if annotation is int:
+            schema_type = "integer"
+        elif annotation is bool:
+            schema_type = "boolean"
+        properties[name] = {"type": schema_type}
+        if param.default is inspect._empty:
+            required.append(name)
+    return {"type": "object", "properties": properties, "required": required}
+
+
+def _tool_definitions() -> List[Dict[str, Any]]:
+    tools = []
+    for name in _TOOL_NAMES:
+        func = globals()[name]
+        tools.append(
+            {
+                "name": name,
+                "description": inspect.getdoc(func) or "",
+                "inputSchema": _json_schema_for_tool(func),
+            }
+        )
+    return tools
+
+
+def _handle_jsonrpc(message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    method = message.get("method")
+    msg_id = message.get("id")
+
+    if msg_id is None:
+        return None
+
+    try:
+        if method == "initialize":
+            params = message.get("params") or {}
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "protocolVersion": params.get("protocolVersion", "2025-06-18"),
+                    "capabilities": {"tools": {"listChanged": False}},
+                    "serverInfo": {"name": "argon", "version": "3.0"},
+                    "instructions": mcp.instructions,
+                },
+            }
+        if method == "ping":
+            return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+        if method == "tools/list":
+            return {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": _tool_definitions()}}
+        if method == "tools/call":
+            params = message.get("params") or {}
+            name = params.get("name")
+            args = params.get("arguments") or {}
+            if name not in _TOOL_NAMES:
+                raise ValueError(f"Unknown tool: {name}")
+            result = globals()[name](**args)
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"content": [{"type": "text", "text": str(result)}], "isError": False},
+            }
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32601, "message": f"Method not found: {method}"},
+        }
+    except Exception as exc:
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "error": {"code": -32000, "message": str(exc)},
+        }
+
+
+def _run_stdio_jsonrpc() -> None:
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            response = _handle_jsonrpc(json.loads(line))
+        except Exception as exc:
+            response = {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {"code": -32700, "message": f"Parse error: {exc}"},
+            }
+        if response is not None:
+            print(json.dumps(response, ensure_ascii=False), flush=True)
+
+
 def main() -> None:
     graph = _load_graph()
     if graph is None:
         print("[!] Grafo no encontrado. La IA puede usar argon_rescan().", file=sys.stderr)
     else:
         print(f"[+] ARGON MCP v3.0 listo. {graph['stats']['total_files']} archivos.", file=sys.stderr)
-    mcp.run()
+    _run_stdio_jsonrpc()
 
 
 if __name__ == '__main__':
