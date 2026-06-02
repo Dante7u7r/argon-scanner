@@ -1,0 +1,25 @@
+{
+  "weights": {
+    "name_weight": 5.0,
+    "file_weight": 1.6,
+    "signature_weight": 1.5,
+    "overlap_weight": 0.6,
+    "focus_bonus": 1.2,
+    "keyword_name_bonus": 1.5,
+    "keyword_file_bonus": 0.45,
+    "task_ratio": 0.55,
+    "call_ratio": 0.25,
+    "graph_ratio": 0.2,
+    "import_neighbor_factor": 0.35,
+    "callee_factor": 0.65,
+    "caller_factor": 0.7,
+    "generic_penalty": 0.45,
+    "support_factor_tests": 0.55,
+    "support_factor_model": 0.25,
+    "support_factor_no_focus": 0.58,
+    "pagerank_precision_weight": 0.7,
+    "connections_precision_weight": 0.2,
+    "symbols_precision_weight": 0.1
+  },
+  "score": 0.7198412698412701
+}

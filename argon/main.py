@@ -13,7 +13,7 @@ def main():
     parser.add_argument('--precision', action='store_true', help='Modo precision: tokens reales, .gitignore, imports resueltos, PageRank y contexto semantico')
     parser.add_argument('--task', default='', help='Tarea para seleccionar contexto precision')
     parser.add_argument('--model', default='gpt-4.1', help='Modelo para conteo real de tokens en precision')
-    parser.add_argument('--format', choices=['xml', 'json', 'markdown'], default='xml', help='Formato de salida precision')
+    parser.add_argument('--format', choices=['xml', 'json', 'markdown', 'compact'], default='xml', help='Formato de salida precision')
     parser.add_argument('--view', action='store_true', help='Generar argon_view.html usando argon_template.html')
     parser.add_argument('--open-view', action='store_true', help='Abrir argon_view.html tras generarlo')
     parser.add_argument('--budget', type=int, default=4096, help='Token budget para ARGON.md (default: 4096)')
@@ -60,7 +60,7 @@ def main():
 
         if args.precision:
             task = args.task or "general repository understanding"
-            ext = {'xml': 'xml', 'json': 'json', 'markdown': 'md'}[args.format]
+            ext = {'xml': 'xml', 'json': 'json', 'markdown': 'md', 'compact': 'txt'}[args.format]
             engine.generate_precision_context(
                 graph,
                 os.path.join(output_dir, f'ARGON_PRECISION.{ext}'),

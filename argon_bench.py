@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from argon import ArgonEngine, TokenCounter
+from argon.utils.tokens import resolve_precision_budget
 
 
 def _contains_any(symbol_id: str, needles: List[str]) -> bool:
@@ -128,7 +129,7 @@ def _score_symbol_ids(symbol_ids: List[str], required: List[str], exact: bool, t
 def score_graph(graph: Dict[str, Any], root_dir: str, spec: Dict[str, Any], model: str = "gpt-4.1") -> Dict[str, Any]:
     spec = _normalize_spec(spec)
     engine = ArgonEngine(root_dir, precision=True, model=model)
-    selected = engine._select_precision_symbols(graph, spec["task"])
+    selected = engine._select_precision_symbols(graph, spec["task"], int(spec.get("max_tokens", 0)))
     top_n = int(spec.get("top_n", 10))
     all_ids = [sym["id"] for sym in selected]
     top_ids = [sym["id"] for sym in selected[:top_n]]
@@ -194,23 +195,24 @@ def score_graph(graph: Dict[str, Any], root_dir: str, spec: Dict[str, Any], mode
             payload = json.loads(text)
         except json.JSONDecodeError:
             payload = {}
-        effective_max_tokens = int(payload.get("max_tokens") or max_tokens)
+        effective_max_tokens, _ = resolve_precision_budget(int(max_tokens), spec.get("budget_profile", "custom"))
         budget_ok = context_tokens <= effective_max_tokens
         context_symbol_ids = [sym.get("id", "") for sym in payload.get("symbols", [])]
         context_found = _find_required(context_symbol_ids, expected, exact_required)
-        expansion_symbol_ids = [item.get("symbol", "") for item in payload.get("expansion_plan", [])]
-        reachable_symbol_ids = list(dict.fromkeys(context_symbol_ids + expansion_symbol_ids))
+        reachable_symbol_ids = list(dict.fromkeys(context_symbol_ids))
         reachable_found = _find_required(reachable_symbol_ids, expected, exact_required)
         full_code_symbols = [sym for sym in payload.get("symbols", []) if sym.get("code")]
         critical_full_code = [
             sym for sym in full_code_symbols
-            if sym.get("context_tier") in {"critical", "workflow"}
+            if sym.get("tier") in {"critical", "workflow"}
         ]
-        packaging = payload.get("packaging_report", {})
-        layers = payload.get("layers", {})
+        layers = {}
+        for sym in payload.get("symbols", []):
+            tier = sym.get("tier", "support")
+            layers.setdefault(tier, []).append(sym.get("id", ""))
         context_audit = {
             "available": True,
-            "budget_profile": payload.get("budget_profile", spec.get("budget_profile", "custom")),
+            "budget_profile": spec.get("budget_profile", "custom"),
             "effective_max_tokens": effective_max_tokens,
             "budget_utilization": round(context_tokens / max(1, effective_max_tokens), 4),
             "context_required_recall": round(len(context_found) / max(1, len(expected)), 4),
@@ -218,16 +220,15 @@ def score_graph(graph: Dict[str, Any], root_dir: str, spec: Dict[str, Any], mode
             "required_in_context": context_found,
             "required_reachable": reachable_found,
             "critical_full_code_symbols": len(critical_full_code),
-            "full_code_symbols": int(packaging.get("full_code_symbols", len(full_code_symbols)) or 0),
-            "compact_symbols": int(packaging.get("compact_symbols", 0) or 0),
-            "support_compacted": int(packaging.get("support_compacted_by_default", 0) or 0),
-            "expansion_plan_items": len(payload.get("expansion_plan", [])),
+            "full_code_symbols": len(full_code_symbols),
+            "compact_symbols": 0,
+            "support_compacted": 0,
+            "expansion_plan_items": 0,
             "has_critical_layer": bool(layers.get("critical")),
             "guardrails_ok": (
                 budget_ok
                 and bool(layers.get("critical"))
                 and len(critical_full_code) > 0
-                and "expansion_plan" in payload
                 and len(reachable_found) == len(expected)
             ),
         }

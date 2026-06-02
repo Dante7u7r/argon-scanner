@@ -1,4 +1,0 @@
-tiktoken>=0.12.0
-pathspec>=1.1.1
-tree-sitter>=0.25.2
-tree-sitter-language-pack>=0.10.0

@@ -101,7 +101,8 @@ def test_task_keywords_payment_synonym():
     engine = _make_engine(".")
     keywords = engine._task_keywords("payment bug")
     assert "payment" in keywords
-    assert "pay" not in keywords  # only canonical form expanded
+    assert "pay" in keywords  # full synonym expansion now includes all group members
+    assert "refund" in keywords
 
 
 def test_task_keywords_total_synonym_expansion():
@@ -149,11 +150,12 @@ def test_task_intents_none():
 
 def test_focus_tokens_excludes_entity_tokens():
     engine = _make_engine(".")
-    focus = engine._task_focus_tokens(["user", "order", "bug", "helper"])
+    focus = engine._task_focus_tokens(["user", "order", "bug", "helper", "item"])
     assert "helper" in focus
-    assert "user" not in focus
-    assert "order" not in focus
+    assert "user" in focus  # user is no longer an entity token
+    assert "order" in focus  # order is no longer an entity token
     assert "bug" not in focus  # entity token
+    assert "item" not in focus  # entity token
 
 
 # ─── _symbol_tokens ───────────────────────────────────────────────────
@@ -390,7 +392,7 @@ def test_support_factor_model_file():
     sym = {"id": "src/models/User.ts::User", "file": "src/models/User.ts",
            "name": "User", "kind": "class", "signature": ""}
     factor = engine._support_symbol_factor(sym, ["order"], set())
-    assert factor == 1.0  # "order" is entity token → no focus → returns 1.0
+    assert factor == 0.25  # order is now a focus keyword → model has no overlap → demoted
 
 
 def test_support_factor_no_focus_default():

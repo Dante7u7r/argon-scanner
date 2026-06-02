@@ -3,7 +3,7 @@ import sys
 import json
 import time
 import threading
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Set
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
@@ -23,6 +23,7 @@ class _ArgonWatchHandler(FileSystemEventHandler):
         self.debounce = debounce
         self._timer: Optional[threading.Timer] = None
         self._lock = threading.Lock()
+        self._changed: Set[str] = set()
 
     def _is_relevant(self, path: str) -> bool:
         try:
@@ -35,7 +36,9 @@ class _ArgonWatchHandler(FileSystemEventHandler):
     def _debounce_trigger(self):
         with self._lock:
             self._timer = None
-        self.sentinel.rebuild()
+        changed = list(self._changed)
+        self._changed.clear()
+        self.sentinel.rebuild(changed_files=changed)
 
     def _schedule(self):
         with self._lock:
@@ -50,6 +53,9 @@ class _ArgonWatchHandler(FileSystemEventHandler):
             return
         if not self._is_relevant(event.src_path):
             return
+        rel = os.path.relpath(event.src_path, self.sentinel.root)
+        with self._lock:
+            self._changed.add(rel)
         self._schedule()
 
 
@@ -80,21 +86,26 @@ class ArgonSentinel:
             model=model,
         )
         self.handler = _ArgonWatchHandler(self, debounce=debounce)
+        self._prev_graph: Optional[dict] = None
 
         self.graph_path = os.path.join(self.root, 'argon_graph.json')
         self.md_path = os.path.join(self.root, 'ARGON.md')
         self.html_path = os.path.join(self.root, 'argon_view.html')
-        ext = {'xml': 'xml', 'json': 'json', 'markdown': 'md'}[self.output_format]
+        self.delta_path = os.path.join(self.root, 'ARGON_DELTA.md')
+        ext = {'xml': 'xml', 'json': 'json', 'markdown': 'md', 'compact': 'txt'}[self.output_format]
         self.precision_path = os.path.join(self.root, f'ARGON_PRECISION.{ext}')
 
         base = os.path.dirname(os.path.abspath(__file__))
         self.template_path = os.path.join(base, '..', 'argon_template.html')
 
-    def rebuild(self):
+    def rebuild(self, changed_files: Optional[List[str]] = None):
         t0 = time.time()
-        print(f"[*] Cambio detectado. Reconstruyendo...")
+        if changed_files:
+            print(f"[*] Cambio detectado ({len(changed_files)} archivos). Reconstruyendo incremental...")
+        else:
+            print(f"[*] Escaneo inicial. Reconstruyendo...")
         try:
-            graph = self.engine.build_graph()
+            graph = self.engine.build_graph(changed_files=changed_files)
         except Exception as e:
             print(f"[!] Error en build_graph: {e}")
             return
@@ -124,6 +135,70 @@ class ArgonSentinel:
         total_files = s['total_files']
         parsed_fresh = total_files - cache_hits
         print(f"    [{elapsed:.2f}s] parsed {parsed_fresh}, cached {cache_hits} — {total_files} archivos, {s['total_connections']} conexiones")
+
+        if self._prev_graph and changed_files:
+            delta = self._compute_delta(self._prev_graph, graph, changed_files)
+            if delta['added'] or delta['removed'] or delta['changed']:
+                print(f"    Δ: +{delta['added']} añadidos  -{delta['removed']} eliminados  ~{delta['changed']} modificados  →{delta['affected']} afectados")
+                self._write_delta(delta)
+        self._prev_graph = graph
+
+    def _compute_delta(self, prev: dict, curr: dict, changed_files: List[str]) -> dict:
+        prev_nodes = {n['id'] for n in prev.get('nodes', [])}
+        curr_nodes = {n['id'] for n in curr.get('nodes', [])}
+        added = sorted(curr_nodes - prev_nodes)
+        removed = sorted(prev_nodes - curr_nodes)
+        changed = [f for f in changed_files if f in curr_nodes and f in prev_nodes]
+
+        edge_targets: Dict[str, List[str]] = {}
+        for edge in curr.get('edges', []):
+            src = edge.get('source', '')
+            tgt = edge.get('target', '')
+            if src and tgt:
+                edge_targets.setdefault(tgt, []).append(src)
+
+        affected: set = set()
+        for f in changed + added:
+            affected.update(edge_targets.get(f, []))
+        affected -= set(changed) | set(added)
+
+        return {
+            'added': len(added), 'added_files': added[:20],
+            'removed': len(removed), 'removed_files': removed[:20],
+            'changed': len(changed), 'changed_files': changed[:20],
+            'affected': len(affected), 'affected_files': sorted(affected)[:20],
+            'total_files': len(curr_nodes),
+        }
+
+    def _write_delta(self, delta: dict) -> None:
+        lines = [
+            f"# ARGON DELTA REPORT",
+            f"Files: {delta['total_files']} | +{delta['added']}/-{delta['removed']}/~{delta['changed']}",
+            f"Affected dependents: {delta['affected']}",
+            "",
+        ]
+        if delta['added_files']:
+            lines.append("## Added files")
+            for f in delta['added_files']:
+                lines.append(f"- {f}")
+            lines.append("")
+        if delta['removed_files']:
+            lines.append("## Removed files")
+            for f in delta['removed_files']:
+                lines.append(f"- {f}")
+            lines.append("")
+        if delta['changed_files']:
+            lines.append("## Changed files")
+            for f in delta['changed_files']:
+                lines.append(f"- {f}")
+            lines.append("")
+        if delta['affected_files']:
+            lines.append("## Affected dependents (import changed files)")
+            for f in delta['affected_files']:
+                lines.append(f"- {f}")
+            lines.append("")
+        with open(self.delta_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines))
 
     def watch(self):
         print(f"[*] Argon Sentinel v9.1 — Vigilando: {self.root}")

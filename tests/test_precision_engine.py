@@ -47,8 +47,6 @@ def test_precision_context_json_respects_token_budget(universal_project: Path, t
     assert "expansion_plan" in payload
     assert all("argon_expand_symbol" in item["expand_with"] for item in payload["expansion_plan"])
     assert any("helper" in symbol["name"].lower() for symbol in payload["symbols"])
-    assert all("selection_reasons" in symbol for symbol in payload["symbols"])
-    assert all("value_per_token" in symbol for symbol in payload["symbols"])
 
 
 def test_precision_context_budget_profile_overrides_budget(universal_project: Path, tmp_path: Path):

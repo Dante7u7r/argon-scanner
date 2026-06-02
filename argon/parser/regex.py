@@ -41,6 +41,9 @@ _RE_EXPORT_DEFAULT_ANON = re.compile(
     r'^\s*export\s+default\s+(?:async\s+)?(?:function|class)?\s*(?P<name>[\w$]+)?'
 )
 _RE_PY_FROM_IMPORT = re.compile(r'^\s*from\s+(?P<source>[\w.]+)\s+import\s+(?P<named>[\w,\s]+)')
+_RE_MULTI_JS = re.compile(r'^\s*(?:import|export)\s*\{')
+_RE_MULTI_PY = re.compile(r'^\s*from\s+[\w.]+\s+import\s*\(')
+_RE_MULTI_RUST = re.compile(r'^\s*use\s+\S+::\{')
 _RE_PHP_USE = re.compile(r'^\s*use\s+(?P<name>[A-Za-z_][\w\\]*)(?:\s+as\s+(?P<alias>[A-Za-z_]\w*))?\s*;')
 _RE_PHP_NAMESPACE = re.compile(r'^\s*namespace\s+(?P<name>[A-Za-z_][\w\\]*)\s*;')
 _RE_RUST_USE = re.compile(r'^\s*use\s+(?P<full>(?:crate|super|self)(?:::[\w*]+)*)(?:::\{[^}]*\}|\s*\{[^}]*\}|\s*;)')
@@ -131,16 +134,65 @@ def _split_named_specifiers(named: str) -> List[Dict[str, str]]:
     return out
 
 
+def _accumulate_import_block(lines: List[str], idx: int) -> Optional[Tuple[str, int]]:
+    """If line at idx starts a multiline import/export, accumulate until closing paren/brace.
+
+    Returns (joined_block, end_index) or None.
+    """
+    line = lines[idx]
+
+    if _RE_MULTI_JS.match(line) and '}' not in lines[idx]:
+        parts = [line.rstrip('\n\r')]
+        for j in range(idx + 1, len(lines)):
+            parts.append(lines[j].rstrip('\n\r'))
+            if '}' in lines[j]:
+                return ' '.join(parts), j
+        return None
+
+    if _RE_MULTI_PY.match(lines[idx]):
+        parts = [line.rstrip('\n\r')]
+        for j in range(idx + 1, len(lines)):
+            parts.append(lines[j].rstrip('\n\r'))
+            if lines[j].strip() == ')':
+                block = ' '.join(parts)
+                block = re.sub(r'import\s*\(\s*', 'import ', block, count=1)
+                block = re.sub(r'\s*\)\s*$', '', block)
+                return block, j
+        return None
+
+    if _RE_MULTI_RUST.match(line) and '}' not in lines[idx]:
+        parts = [line.rstrip('\n\r')]
+        for j in range(idx + 1, len(lines)):
+            parts.append(lines[j].rstrip('\n\r'))
+            if '}' in lines[j]:
+                return ' '.join(parts), j
+        return None
+
+    return None
+
+
 def _extract_import_records(lines: List[str]) -> Tuple[List[Dict[str, Any]], List[str]]:
     records: List[Dict[str, Any]] = []
     exports: List[str] = []
     in_template = False
-    for i, line in enumerate(lines, 1):
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        line_num = i + 1
         skip_import_scan = in_template
         if _has_unescaped_backtick(line):
             in_template = not in_template
         if skip_import_scan:
+            i += 1
             continue
+
+        # Multiline accumulation for import/export constructs
+        acc = _accumulate_import_block(lines, i)
+        if acc:
+            line, end_idx = acc
+        else:
+            end_idx = i
+
         m = _RE_IMPORT_NAMED.match(line)
         if m:
             names = []
@@ -156,43 +208,49 @@ def _extract_import_records(lines: List[str]) -> Tuple[List[Dict[str, Any]], Lis
                 specifiers.append({'imported': '*', 'local': m.group('namespace')})
             records.append({
                 'source': m.group('source'),
-                'line': i,
+                'line': line_num,
                 'names': names,
                 'specifiers': specifiers,
                 'kind': 'import',
             })
+            i = end_idx + 1
             continue
         m = _RE_IMPORT_SIDE_EFFECT.match(line)
         if m:
-            records.append({'source': m.group('source'), 'line': i, 'names': [], 'kind': 'import'})
+            records.append({'source': m.group('source'), 'line': line_num, 'names': [], 'kind': 'import'})
+            i = end_idx + 1
             continue
         m = _RE_REQUIRE.search(line)
         if m:
-            records.append({'source': m.group(1), 'line': i, 'names': [], 'kind': 'require'})
+            records.append({'source': m.group(1), 'line': line_num, 'names': [], 'kind': 'require'})
+            i = end_idx + 1
             continue
         m = _RE_PY_FROM_IMPORT.match(line)
         if m:
             names = [name.strip() for name in m.group('named').split(',') if name.strip()]
             records.append({
                 'source': m.group('source'),
-                'line': i,
+                'line': line_num,
                 'names': names,
                 'specifiers': [{'imported': name, 'local': name} for name in names],
                 'kind': 'import',
             })
+            i = end_idx + 1
             continue
         m = _RE_EXPORT_FROM.match(line)
         if m:
             names = ['*'] if m.group('body') == '*' else _split_named_imports(m.group('body').strip('{}'))
             specifiers = [{'imported': '*', 'local': '*'}] if names == ['*'] else _split_named_specifiers(m.group('body').strip('{}'))
-            records.append({'source': m.group('source'), 'line': i, 'names': names, 'specifiers': specifiers, 'kind': 're-export'})
+            records.append({'source': m.group('source'), 'line': line_num, 'names': names, 'specifiers': specifiers, 'kind': 're-export'})
             exports.extend(names)
+            i = end_idx + 1
             continue
         m = _RE_EXPORT_DECL.match(line)
         if m:
             exports.append(m.group('name'))
             if line.strip().startswith('export default'):
                 exports.append('default')
+            i = end_idx + 1
             continue
         m = _RE_EXPORT_DEFAULT_ANON.match(line)
         if m:
@@ -205,11 +263,12 @@ def _extract_import_records(lines: List[str]) -> Tuple[List[Dict[str, Any]], Lis
             local = m.group('alias') or name.rsplit('\\', 1)[-1]
             records.append({
                 'source': name,
-                'line': i,
+                'line': line_num,
                 'names': [local],
                 'specifiers': [{'imported': local, 'local': local}],
                 'kind': 'php-use',
             })
+            i = end_idx + 1
             continue
         m = _RE_RUST_USE.match(line)
         if m:
@@ -230,11 +289,12 @@ def _extract_import_records(lines: List[str]) -> Tuple[List[Dict[str, Any]], Lis
                 specifiers = [{'imported': last_part, 'local': last_part}]
             records.append({
                 'source': full_path,
-                'line': i,
+                'line': line_num,
                 'names': names,
                 'specifiers': specifiers,
                 'kind': 'rust-use',
             })
+            i = end_idx + 1
             continue
         m = _RE_RUST_USE_EXTERN.match(line)
         if m:
@@ -255,11 +315,14 @@ def _extract_import_records(lines: List[str]) -> Tuple[List[Dict[str, Any]], Lis
                 specifiers = [{'imported': last_part, 'local': last_part}]
             records.append({
                 'source': full_path,
-                'line': i,
+                'line': line_num,
                 'names': names,
                 'specifiers': specifiers,
                 'kind': 'rust-use',
             })
+            i = end_idx + 1
+            continue
+        i = end_idx + 1
     return records, list(dict.fromkeys(exports))
 
 

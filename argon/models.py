@@ -28,6 +28,7 @@ class ProjectNode:
     summary: str = ""
     importance: float = 0.0
     pagerank: float = 0.0
+    role: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

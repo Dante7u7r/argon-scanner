@@ -1,8 +1,7 @@
-# ARGON — Universal Architecture Scanner
-# Optional: tree-sitter for AST-level parsing (2MB)
-#   pip install tree-sitter-language-pack
-# Required: MCP server for AI integration
-#   pip install mcp
-
-tree-sitter-language-pack>=0.1.0
-mcp>=1.0.0
+# ARGON — Core runtime dependencies
+tiktoken>=0.12.0
+pathspec>=1.1.1
+tree-sitter>=0.25.2
+tree-sitter-language-pack>=0.10.0
+mcp>=1.27.1
+watchdog>=6.0.0

@@ -62,8 +62,8 @@ def test_cli_precision_budget_profile(universal_project: Path, tmp_path: Path):
 
 def test_cli_precision_writes_xml_and_markdown_formats(universal_project: Path, tmp_path: Path):
     for fmt, filename, marker in [
-        ("xml", "ARGON_PRECISION.xml", "<repository"),
-        ("markdown", "ARGON_PRECISION.md", "# ARGON PRECISION CONTEXT"),
+        ("xml", "ARGON_PRECISION.xml", "<repo"),
+        ("markdown", "ARGON_PRECISION.md", "# universal_project"),
     ]:
         output = tmp_path / fmt
         output.mkdir()
