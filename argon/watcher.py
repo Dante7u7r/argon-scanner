@@ -140,6 +140,15 @@ class ArgonSentinel:
             delta = self._compute_delta(self._prev_graph, graph, changed_files)
             if delta['added'] or delta['removed'] or delta['changed']:
                 print(f"    Δ: +{delta['added']} añadidos  -{delta['removed']} eliminados  ~{delta['changed']} modificados  →{delta['affected']} afectados")
+                # Si los cambios son pocos, los listamos en consola
+                total_changes = delta['added'] + delta['removed'] + delta['changed']
+                if total_changes <= 5:
+                    for f in delta.get('added_files', []):
+                        print(f"      + {f}")
+                    for f in delta.get('removed_files', []):
+                        print(f"      - {f}")
+                    for f in delta.get('changed_files', []):
+                        print(f"      ~ {f}")
                 self._write_delta(delta)
         self._prev_graph = graph
 
