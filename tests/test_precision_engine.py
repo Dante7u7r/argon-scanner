@@ -227,3 +227,65 @@ def test_parse_cache_is_used_on_second_scan(universal_project: Path):
     assert first["stats"]["cache_hits"] == 0
     assert second["stats"]["cache_hits"] >= first["stats"]["total_files"]
     assert ".argon_cache.json" not in {node["id"] for node in second["nodes"]}
+
+
+def test_precision_ast_extracted_calls_with_constructor(tmp_path: Path):
+    project = tmp_path / "ast_calls_test"
+    project.mkdir()
+    (project / "tsconfig.json").write_text(json.dumps({"compilerOptions": {"baseUrl": "."}}), encoding="utf-8")
+    
+    src = project / "src"
+    src.mkdir()
+    
+    (src / "service.ts").write_text(
+        "export class Service {\n"
+        "  normalize(): string {\n"
+        "    return 'data';\n"
+        "  }\n"
+        "  run(): string {\n"
+        "    return this.normalize();\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8"
+    )
+    
+    (src / "main.ts").write_text(
+        "import { Service } from './service';\n"
+        "export function runService(): string {\n"
+        "  const s = new Service();\n"
+        "  return s.run();\n"
+        "}\n",
+        encoding="utf-8"
+    )
+    
+    engine = ArgonEngine(str(project), precision=True, model="gpt-4.1")
+    graph = engine.build_graph()
+    
+    main_node = next(n for n in graph["nodes"] if n["id"] == "src/main.ts")
+    run_service_sym = next(s for s in main_node["symbols"] if s["name"] == "runService")
+    
+    assert "Service" in run_service_sym["calls"]
+    
+    service_node = next(n for n in graph["nodes"] if n["id"] == "src/service.ts")
+    run_sym = next(s for s in service_node["symbols"] if s["name"] == "run")
+    assert "this.normalize" in run_sym["calls"]
+    
+    calls = {
+        (edge["source"], edge["target"], edge.get("local"))
+        for edge in graph["symbol_edges"]
+        if edge.get("kind") in {"calls-symbol", "calls-symbol-local"}
+    }
+    
+    # Constructor call (imported)
+    assert (
+        "src/main.ts::runService",
+        "src/service.ts::Service",
+        "Service",
+    ) in calls
+    
+    # Method call on 'this' (local)
+    assert (
+        "src/service.ts::run",
+        "src/service.ts::normalize",
+        "this.normalize",
+    ) in calls

@@ -10,6 +10,34 @@ from argon.engine.snippets import read_contextual_snippet, read_symbol_snippet
 from argon.utils.tokens import TokenCounter, resolve_precision_budget
 
 
+def get_domain_safeguards(domain: str, languages: Set[str]) -> List[str]:
+    rules = []
+    
+    # 1. Universal Guardrails (Structural Thinking)
+    rules.append("STRUCTURAL THINKING: Before outputting any code, you MUST generate a '<thinking>' block analyzing: (a) Structural constraints and helper function isolation, (b) Exact mathematical formulas, signs, and types, (c) Array indexing mappings and bounds.")
+    
+    # 2. Scope Pinning
+    if 'rs' in languages:
+        rules.append("SCOPE PINNING (RUST): Do NOT rewrite entire files (especially large files like 'solver.rs'). Isolate changes by editing strictly within specified line ranges or writing standalone helper functions/closures.")
+    else:
+        rules.append("SCOPE PINNING: Do NOT rewrite entire source files. Isolate changes to targeted functions or write small helper functions to prevent context blowout and hallucinations.")
+
+    # 3. Type Signatures & Indexing (General & Rust-specific)
+    if 'rs' in languages:
+        rules.append("TYPE SAFETY (RUST): Rust is extremely strict on type signatures (e.g., DVector, BTreeMap, HashMap, Complex). Explicitly map variable types and check memory borrowing/ownership rules before coding.")
+
+    # 4. Domain-Specific (Circuit Simulation / Calculator / Scientific Computing)
+    is_simulation = (domain in ('scientific_computing', 'calculator') or 
+                     any(t in domain.lower() for t in ('sim', 'circuit', 'solver', 'math')))
+    
+    if is_simulation:
+        rules.append("NUMERICAL DAMPING (pnjlim): When evaluating candidate residues f(x_cand) during Newton-Raphson line searches, make sure to deactivate temporary limiting/damping (like pnjlim) in candidate states; otherwise, you will mask divergence and fail KCL convergence.")
+        rules.append("MNA STAMPS CONSISTENCY: Ensure exact mathematical signs and physical dimensions. For Trapezoidal integration (TRAP) of inductors, conductance G_eq = h / (2 * L) and current source I_eq = i_L(t_n) + G_eq * v_L(t_n). Check dimensional units (Amperes) to avoid inversion errata.")
+        rules.append("SPICE INDEXING CONVENTION: In SPICE/MNA matrices, Ground (Node 0) is reference and usually handled separately. Check if node solutions (0-indexed active nodes) map differently from full node voltage vectors (1-indexed, with 0 as Tierra).")
+    
+    return rules
+
+
 def precision_symbol_block(symbol: Dict[str, Any], output_format: str, root: str, parser, keywords: List[str] = None) -> str:
     tier = symbol.get('context_tier', 'support')
     if keywords:
@@ -176,6 +204,11 @@ def build_precision_compact(
     if warning:
         header_parts.append(f'# warning: {warning}')
 
+    languages = {n.get('type') for n in graph.get('nodes', [])}
+    rules = get_domain_safeguards(graph.get('project_domain', 'general'), languages)
+    for r in rules:
+        header_parts.append(f'# safeguard: {r}')
+
     header_parts.append('')
 
     counter = TokenCounter(model='gpt-4.1', strict=False)
@@ -335,6 +368,9 @@ def build_precision_json_payload(
     keywords = keywords or extract_task_keywords(task)
     omitted = 0
 
+    languages = {n.get('type') for n in graph.get('nodes', [])}
+    rules = get_domain_safeguards(graph.get('project_domain', 'general'), languages)
+
     payload = {
         'repo': graph['root'],
         'precision': True,
@@ -343,6 +379,7 @@ def build_precision_json_payload(
         'max_tokens': max_tokens,
         'budget_profile': budget_settings['name'],
         'warning': selection_report.get('relevance_warning', ''),
+        'safeguards': rules,
         'subgraph': {
             'nodes': selection_report.get('subgraph_nodes', 0),
             'edges': selection_report.get('subgraph_edges', 0),
@@ -430,13 +467,25 @@ def _generate_precision_xml_or_markdown(
     used_blocks: List[str] = []
     omitted = 0
 
+    languages = {n.get('type') for n in graph.get('nodes', [])}
+    rules = get_domain_safeguards(graph.get('project_domain', 'general'), languages)
+
     if output_format == 'xml':
         warning_attr = ''
         if selection_report.get('relevance_warning'):
             warning_attr = f' warning="{xml_escape(selection_report["relevance_warning"])}"'
+        
+        safeguards_xml = ""
+        if rules:
+            safeguards_xml = "  <safeguards>\n"
+            for rule in rules:
+                safeguards_xml += f"    <rule>{xml_escape(rule)}</rule>\n"
+            safeguards_xml += "  </safeguards>\n"
+
         header = (
             f'<repo name="{xml_escape(graph["root"])}" domain="{xml_escape(graph.get("project_domain", "general"))}"{warning_attr}>\n'
             f'  <task>{xml_escape(task)}</task>\n'
+            f'{safeguards_xml}'
             f'  <context>\n'
         )
         footer = '  </context>\n</repo>\n'
@@ -444,9 +493,18 @@ def _generate_precision_xml_or_markdown(
         warning_line = ""
         if selection_report.get('relevance_warning'):
             warning_line = f"\n**WARNING**: {selection_report['relevance_warning']}\n"
+        
+        safeguards_md = ""
+        if rules:
+            safeguards_md = "\n## AI CODING SAFEGUARDS\n"
+            for rule in rules:
+                safeguards_md += f"- {rule}\n"
+            safeguards_md += "\n"
+
         header = (
             f"# {graph['root']} [{graph.get('project_domain', 'general')}] — {task}\n"
-            f"{warning_line}\n"
+            f"{warning_line}"
+            f"{safeguards_md}"
         )
         footer = ''
 
@@ -532,8 +590,8 @@ def generate_precision_context(
 ) -> None:
     max_tokens, budget_settings = resolve_precision_budget(max_tokens, budget_profile)
     output_format = output_format.lower()
-    if output_format not in {'xml', 'json', 'markdown'}:
-        raise ValueError("--format must be one of: xml, json, markdown")
+    if output_format not in {'xml', 'json', 'markdown', 'compact'}:
+        raise ValueError("--format must be one of: xml, json, markdown, compact")
 
     if output_format == 'json':
         output = build_precision_json_payload(
@@ -543,6 +601,17 @@ def generate_precision_context(
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(output)
         print(f"[+] Precision context: {output_path} | {counter.count(output)} tokens")
+        return
+
+    if output_format == 'compact':
+        output = build_precision_compact(
+            graph, task, max_tokens,
+            selected=selected, selection_report=selection_report,
+            keywords=keywords, root=root, parser=parser
+        )
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(output)
+        print(f"[+] Precision compact: {output_path} | {counter.count(output)} tokens")
         return
 
     _generate_precision_xml_or_markdown(

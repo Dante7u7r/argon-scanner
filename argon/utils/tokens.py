@@ -19,6 +19,10 @@ class TokenCounter:
         self.encoder = None
         self._tiktoken = tiktoken_mod
 
+        model_lower = model.lower()
+        self.is_gemini = "gemini" in model_lower
+        self.is_claude = "claude" in model_lower
+
         if has_tiktoken is None:
             try:
                 import tiktoken as _t
@@ -27,23 +31,29 @@ class TokenCounter:
             except ImportError:
                 has_tiktoken = False
 
-        if has_tiktoken and self._tiktoken is not None:
+        if has_tiktoken and self._tiktoken is not None and not self.is_gemini:
+            target_model = "gpt-4" if self.is_claude else model
             try:
-                self.encoder = self._tiktoken.encoding_for_model(model)
+                self.encoder = self._tiktoken.encoding_for_model(target_model)
             except Exception:
                 try:
-                    self.encoder = self._tiktoken.get_encoding("o200k_base")
+                    encoding_name = "cl100k_base" if self.is_claude else "o200k_base"
+                    self.encoder = self._tiktoken.get_encoding(encoding_name)
                 except Exception:
                     self.encoder = None
-        if strict and self.encoder is None:
+        if strict and self.encoder is None and not self.is_gemini:
             raise RuntimeError(
-                "Precision mode requires tiktoken for real token budgets. "
+                "Precision mode requires tiktoken for real token budgets (unless using Gemini estimation). "
                 "Install it with: pip install tiktoken"
             )
 
     def count(self, text: str) -> int:
+        if self.is_gemini:
+            return max(1, int(len(text) / 3.7))
         if self.encoder:
             return len(self.encoder.encode(text))
+        if self.is_claude:
+            return max(1, int(len(text) / 3.5))
         return estimate_tokens(text)
 
 

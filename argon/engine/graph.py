@@ -42,6 +42,8 @@ from argon.engine.formatter import (
     fit_expansion_plan as _fit_expansion_plan_fn,
     build_precision_json_payload as _build_precision_json_payload_fn,
     build_precision_compact as _build_precision_compact_fn,
+    get_domain_safeguards,
+    generate_precision_context as _generate_precision_context_fn,
 )
 from argon.utils.tokens import TokenCounter, estimate_tokens, resolve_precision_budget
 
@@ -63,6 +65,17 @@ class ArgonEngine(BuilderMixin):
             f"Parser: {graph.get('parser_mode', 'regex')}",
             "", "---", "",
         ]
+        
+        languages = {n.get('type') for n in graph.get('nodes', [])}
+        rules = get_domain_safeguards(graph.get('project_domain', 'general'), languages)
+        if rules:
+            header.append("## AI CODING SAFEGUARDS")
+            for r in rules:
+                header.append(f"- {r}")
+            header.append("")
+            header.append("---")
+            header.append("")
+
         header_text = "\n".join(header)
         budget = max_tokens - estimate_tokens(header_text)
 
@@ -258,131 +271,20 @@ class ArgonEngine(BuilderMixin):
         budget_profile: str = 'custom',
     ) -> None:
         max_tokens_resolved, budget_settings = resolve_precision_budget(max_tokens, budget_profile)
-        output_format = output_format.lower()
-        if output_format not in {'xml', 'json', 'markdown', 'compact'}:
-            raise ValueError("--format must be one of: xml, json, markdown, compact")
-
-        if output_format == 'json':
-            self._generate_precision_json_output(graph, output_path, task, max_tokens_resolved, budget_profile)
-            return
-
-        if output_format == 'compact':
-            self._generate_precision_compact_output(graph, output_path, task, max_tokens_resolved, budget_profile)
-            return
-
         selected = self._select_precision_symbols(graph, task, max_tokens_resolved)
         selection_report = getattr(self, '_last_selection_report', {})
-        keywords = extract_task_keywords(task)
-        used_blocks: List[str] = []
-        omitted = 0
-
-        if output_format == 'xml':
-            warning_attr = ''
-            if selection_report.get('relevance_warning'):
-                warning_attr = f' warning="{xml_escape(selection_report["relevance_warning"])}"'
-            subgraph_info = ''
-            if selection_report.get('subgraph_nodes'):
-                subgraph_info = (
-                    f' subgraph_nodes="{selection_report["subgraph_nodes"]}"'
-                    f' subgraph_edges="{selection_report["subgraph_edges"]}"'
-                    f' subgraph_density="{selection_report["subgraph_density"]}"'
-                )
-            omitted_info = selection_report.get('omitted_by_budget', 0)
-            header = (
-                f'<repo name="{xml_escape(graph["root"])}" domain="{xml_escape(graph.get("project_domain", "general"))}"{warning_attr}{subgraph_info}>\n'
-                f'  <task>{xml_escape(task)}</task>\n'
-                f'  <context budget="{max_tokens_resolved}" used="PLACEHOLDER_USED" remaining="PLACEHOLDER_REMAINING" omitted="{omitted_info}">\n'
-            )
-            footer = '  </context>\n'
-            exp = selection_report.get('expansion_plan', [])
-            if exp:
-                footer += '  <expansion>\n'
-                for eitem in exp[:8]:
-                    eid = xml_escape(eitem.get('id', ''))
-                    escore = eitem.get('score', 0)
-                    etier = xml_escape(eitem.get('tier', 'support'))
-                    ereason = xml_escape(eitem.get('reason', ''))
-                    footer += f'    <next id="{eid}" score="{escore}" tier="{etier}" reason="{ereason}"/>\n'
-                footer += '  </expansion>\n'
-            footer += '</repo>\n'
-        else:
-            warning_line = ""
-            if selection_report.get('relevance_warning'):
-                warning_line = f"\n**WARNING**: {selection_report['relevance_warning']}\n"
-            header = (
-                f"# {graph['root']} [{graph.get('project_domain', 'general')}] — {task}\n"
-                f"{warning_line}\n"
-            )
-            footer = ''
-
-        budget = max_tokens_resolved - self.token_counter.count(header + footer)
-        used = 0
-        layers = _precision_layers_fn(selected)
-        included_ids: Set[str] = set()
-        for tier in ('critical', 'workflow', 'support'):
-            tier_symbols = layers[tier]
-            if not tier_symbols:
-                continue
-            if output_format == 'xml':
-                section_open = f'    <layer name="{tier}">\n'
-                section_close = f'    </layer>'
-            else:
-                section_open = f"\n## {tier.upper()}\n"
-                section_close = ""
-            section_cost = self.token_counter.count(section_open + section_close)
-            if used + section_cost <= budget:
-                used_blocks.append(section_open.rstrip("\n"))
-                used += section_cost
-            else:
-                omitted += len(tier_symbols)
-                continue
-            for sym in tier_symbols:
-                if tier == 'support':
-                    sig = sym.get('signature', '')
-                    conf = sym.get('confidence_score')
-                    conf_attr = f' confidence="{conf}"' if conf is not None else ''
-                    block = (
-                        f'  <sym id="{xml_escape(sym["id"])}" tier="support"'
-                        f' kind="{xml_escape(sym.get("kind", ""))}" role="{xml_escape(sym.get("role", ""))}"'
-                        f' file="{xml_escape(sym["file"])}" line="{sym.get("start_line", 0)}"'
-                        f' sig="{xml_escape(sig)}"{conf_attr} />'
-                        if output_format == 'xml'
-                        else f"- {sym['id']}: `{sig}`\n"
-                    )
-                else:
-                    block = _precision_symbol_block_fn(sym, output_format, self.root, self.parser, keywords)
-                cost = self.token_counter.count(block)
-                if used + cost <= budget:
-                    used_blocks.append(block)
-                    used += cost
-                    included_ids.add(sym['id'])
-                else:
-                    compact = dict(sym)
-                    compact.pop('code', None)
-                    compact_block = (
-                        json.dumps(compact, ensure_ascii=False)
-                        if output_format == 'json'
-                        else f'  <symbol-ref id="{xml_escape(sym["id"])}" file="{xml_escape(sym["file"])}" line="{sym.get("start_line", 0)}" />'
-                        if output_format == 'xml'
-                        else f"- {sym['id']} ({sym['file']}:{sym.get('start_line', 0)})\n"
-                    )
-                    compact_cost = self.token_counter.count(compact_block)
-                    if used + compact_cost <= budget:
-                        used_blocks.append(compact_block)
-                        used += compact_cost
-                        included_ids.add(sym['id'])
-                    else:
-                        omitted += 1
-            if section_close:
-                used_blocks.append(section_close)
-
-        if output_format == 'xml':
-            remaining = max_tokens_resolved - used
-            header_final = header.replace('PLACEHOLDER_USED', str(used)).replace('PLACEHOLDER_REMAINING', str(remaining))
-            output = header_final + "\n".join(used_blocks) + "\n" + footer
-        else:
-            output = header + "\n".join(used_blocks)
-
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(output)
-        print(f"[+] Precision context: {output_path} | {self.token_counter.count(output)} tokens")
+        
+        _generate_precision_context_fn(
+            graph=graph,
+            output_path=output_path,
+            task=task,
+            max_tokens=max_tokens_resolved,
+            output_format=output_format,
+            budget_profile=budget_profile,
+            selected=selected,
+            selection_report=selection_report,
+            keywords=extract_task_keywords(task),
+            counter=self.token_counter,
+            root=self.root,
+            parser=self.parser,
+        )

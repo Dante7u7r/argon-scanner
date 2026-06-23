@@ -39,7 +39,11 @@ class IncrementalSelector:
             wave_index = len(WAVES) - 1
         self._current_wave = wave_index
         wave = WAVES[wave_index]
-        budget = int(self.total_budget * wave.max_tokens_ratio)
+        raw_budget = int(self.total_budget * wave.max_tokens_ratio)
+        if raw_budget >= 1024:
+            budget = (raw_budget // 1024) * 1024
+        else:
+            budget = raw_budget
 
         candidates = []
         for sym in self.all_symbols:

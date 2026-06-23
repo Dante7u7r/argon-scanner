@@ -360,6 +360,26 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
                 if test_sym['id'] not in candidates:
                     add(test_sym['id'], seed_final * 0.50, 'code_test_map')
 
+    # ─── Type-Aware Context Expansion ──────────────────────────────────
+    import re
+    type_candidate_names = set()
+    for item in list(candidates.values()):
+        tier = item.get('context_tier', 'support')
+        if tier in ('critical', 'workflow'):
+            sig = item.get('signature', '')
+            if sig:
+                words = set(re.findall(r'\b[A-Za-z_]\w*\b', sig))
+                for w in words:
+                    if w not in ('Result', 'Option', 'String', 'Vec', 'Box', 'Promise', 'List', 'Map', 'Set', 'Dict', 'Any'):
+                        type_candidate_names.add(w)
+
+    if type_candidate_names:
+        for sym in graph.get('symbols', []):
+            kind = str(sym.get('kind', '')).lower()
+            if kind in ('struct', 'class', 'interface', 'enum', 'type'):
+                if sym['name'] in type_candidate_names and sym['id'] not in candidates:
+                    add(sym['id'], 0.85, 'type_dependency')
+
     if not candidates:
         for sym in graph.get('symbols', [])[:80]:
             if is_generic_type_symbol(sym):
@@ -402,6 +422,11 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
                 cut_ids.append(item['id'])
         selected = greedy_selected
         report['omitted_by_budget'] = len(cut_ids)
+        if cut_ids:
+            report['budget_recommendation'] = (
+                f"WARNING: {len(cut_ids)} relevant symbols were omitted due to budget limit ({max_tokens} tokens). "
+                f"Consider increasing your budget profile (e.g. to 'deep' or 'generous') or allocating more tokens."
+            )
     else:
         selected.sort(
             key=lambda s: (

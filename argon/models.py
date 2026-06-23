@@ -11,6 +11,7 @@ class Symbol:
     summary: str = ""
     signature: str = ""
     exported: bool = False
+    calls: Optional[List[str]] = None
 
 
 @dataclass

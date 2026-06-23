@@ -80,6 +80,9 @@ def symbol_token_cost(sym: Dict[str, Any], token_counter, include_code: bool = T
         'reasons': sym.get('selection_reasons', []),
         'code': snippet,
     }
+    if token_counter is None:
+        from argon.utils.tokens import estimate_tokens
+        return max(1, estimate_tokens(json.dumps(preview, ensure_ascii=False)))
     return max(1, token_counter.count(json.dumps(preview, ensure_ascii=False)))
 
 

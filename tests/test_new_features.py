@@ -526,3 +526,325 @@ def test_detect_project_domain_ml_import():
 def test_detect_project_domain_keywords_import():
     from argon.engine.domain import detect_project_domain
     assert callable(detect_project_domain)
+
+
+# ===================== Domain-Aware AI Safeguards & Guardrails =====================
+
+def test_domain_aware_safeguards_generation():
+    from argon.engine.formatter import get_domain_safeguards, build_precision_json_payload, build_precision_compact, generate_precision_context
+    from argon.engine.graph import ArgonEngine
+    from argon.utils.tokens import TokenCounter
+
+    # 1. Test get_domain_safeguards logic directly
+    rules_rs_sim = get_domain_safeguards('scientific_computing', {'rs'})
+    assert any("STRUCTURAL THINKING:" in r for r in rules_rs_sim)
+    assert any("SCOPE PINNING (RUST):" in r for r in rules_rs_sim)
+    assert any("TYPE SAFETY (RUST):" in r for r in rules_rs_sim)
+    assert any("NUMERICAL DAMPING" in r for r in rules_rs_sim)
+
+    rules_py_non_sim = get_domain_safeguards('web_app', {'py'})
+    assert any("STRUCTURAL THINKING:" in r for r in rules_py_non_sim)
+    assert any("SCOPE PINNING:" in r for r in rules_py_non_sim)
+    assert not any("RUST" in r for r in rules_py_non_sim)
+    assert not any("NUMERICAL DAMPING" in r for r in rules_py_non_sim)
+
+    # Mock Graph
+    graph = {
+        "root": "test-repo",
+        "project_domain": "scientific_computing",
+        "nodes": [
+            {"id": "solver.rs", "type": "rs", "lines": 100},
+            {"id": "main.rs", "type": "rs", "lines": 50}
+        ],
+        "edges": [],
+        "symbol_edges": [],
+        "stats": {
+            "total_files": 2,
+            "total_connections": 0,
+            "total_symbols": 0,
+            "total_symbol_connections": 0,
+            "timestamp": "2026-06-22",
+        },
+        "preferred_file": "solver.rs",
+    }
+    
+    counter = TokenCounter(model='gpt-4.1', strict=False)
+
+    # 2. Test JSON builder
+    json_payload = build_precision_json_payload(
+        graph=graph,
+        task="fix solver bug",
+        max_tokens=2048,
+        counter=counter,
+    )
+    data = json.loads(json_payload)
+    assert "safeguards" in data
+    assert len(data["safeguards"]) > 0
+    assert any("pnjlim" in r for r in data["safeguards"])
+
+    # 3. Test Compact builder
+    compact_payload = build_precision_compact(
+        graph=graph,
+        task="fix solver bug",
+        max_tokens=2048,
+    )
+    assert "# safeguard: " in compact_payload
+    assert "pnjlim" in compact_payload
+
+    # 4. Test XML & Markdown file output via generate_precision_context
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        xml_path = os.path.join(tmp_dir, "context.xml")
+        md_path = os.path.join(tmp_dir, "context.md")
+
+        # XML
+        generate_precision_context(
+            graph=graph,
+            output_path=xml_path,
+            task="fix solver bug",
+            max_tokens=2048,
+            output_format="xml",
+            counter=counter,
+        )
+        assert os.path.exists(xml_path)
+        with open(xml_path, 'r', encoding='utf-8') as f:
+            xml_content = f.read()
+        assert "<safeguards>" in xml_content
+        assert "<rule>" in xml_content
+        assert "pnjlim" in xml_content
+
+        # Markdown
+        generate_precision_context(
+            graph=graph,
+            output_path=md_path,
+            task="fix solver bug",
+            max_tokens=2048,
+            output_format="markdown",
+            counter=counter,
+        )
+        assert os.path.exists(md_path)
+        with open(md_path, 'r', encoding='utf-8') as f:
+            md_content = f.read()
+        assert "## AI CODING SAFEGUARDS" in md_content
+        assert "pnjlim" in md_content
+
+        # Test engine-level generate_precision_context (XML)
+        engine = ArgonEngine(tmp_dir, precision=True)
+        xml_path2 = os.path.join(tmp_dir, "context2.xml")
+        engine.generate_precision_context(
+            graph=graph,
+            output_path=xml_path2,
+            task="fix solver bug",
+            max_tokens=2048,
+            output_format="xml",
+        )
+        with open(xml_path2, 'r', encoding='utf-8') as f:
+            xml_content2 = f.read()
+        assert "<safeguards>" in xml_content2
+        assert "pnjlim" in xml_content2
+
+        # Test engine-level generate_precision_context (Markdown)
+        md_path2 = os.path.join(tmp_dir, "context2.md")
+        engine.generate_precision_context(
+            graph=graph,
+            output_path=md_path2,
+            task="fix solver bug",
+            max_tokens=2048,
+            output_format="markdown",
+        )
+        with open(md_path2, 'r', encoding='utf-8') as f:
+            md_content2 = f.read()
+        assert "## AI CODING SAFEGUARDS" in md_content2
+        assert "pnjlim" in md_content2
+
+    # 5. Test ArgonEngine generate_context_report (ARGON.md)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        report_path = os.path.join(tmp_dir, "ARGON.md")
+        engine = ArgonEngine(tmp_dir, precision=True)
+        engine.generate_context_report(graph, report_path)
+        assert os.path.exists(report_path)
+        with open(report_path, 'r', encoding='utf-8') as f:
+            report_content = f.read()
+        assert "## AI CODING SAFEGUARDS" in report_content
+        assert "pnjlim" in report_content
+
+
+# ===================== Dynamic File & Symbol Slicing =====================
+
+def test_dynamic_slicing_large_function():
+    from argon.engine.snippets import slice_symbol_body
+    
+    # 1. Test short function is not sliced
+    short_code = [
+        "fn add(a: i32, b: i32) -> i32 {",
+        "    a + b",
+        "}"
+    ]
+    assert slice_symbol_body(short_code, [], "rs") == "\n".join(short_code)
+    
+    # 2. Test large function gets sliced and collapsed
+    large_code = [
+        "fn large_solver_helper(x: &mut DVector<f64>) -> Result<(), String> {",
+        "    let mut steps = 0;",
+        "    let boring_var_1 = 1;",
+        "    let boring_var_2 = 2;",
+        "    let boring_var_3 = 3;",
+        "    let boring_var_4 = 4;",
+        "    let boring_var_5 = 5;",
+        "    let boring_var_6 = 6;",
+        "    let boring_var_7 = 7;",
+        "    let boring_var_8 = 8;",
+        "    if steps > 100 {",
+        "        return Err(\"Max steps reached\".to_string());",
+        "    }",
+        "    let boring_var_9 = 9;",
+        "    let boring_var_10 = 10;",
+        "    let boring_var_11 = 11;",
+        "    let boring_var_12 = 12;",
+        "    let boring_var_13 = 13;",
+        "    let boring_var_14 = 14;",
+        "    let boring_var_15 = 15;",
+        "    let boring_var_16 = 16;",
+        "    let boring_var_17 = 17;",
+        "    let boring_var_18 = 18;",
+        "    execute_jacobian_update(x);",
+        "    let boring_var_19 = 19;",
+        "    let boring_var_20 = 20;",
+        "    let boring_var_21 = 21;",
+        "    let boring_var_22 = 22;",
+        "    let boring_var_23 = 23;",
+        "    Ok(())",
+        "}"
+    ]
+    sliced = slice_symbol_body(large_code, ["jacobian"], "rs")
+    
+    assert "fn large_solver_helper" in sliced
+    assert "if steps > 100 {" in sliced
+    assert "execute_jacobian_update(x);" in sliced
+    assert "Ok(())" in sliced
+    assert "// ... [omitted" in sliced
+    
+    sliced_py = slice_symbol_body(large_code, ["jacobian"], "py")
+    assert "# ... [omitted" in sliced_py
+
+
+# ===================== Architectural Overhaul Improvements =====================
+
+def test_architectural_overhaul_improvements():
+    from argon.parser.tree_sitter import TreeSitterAdapter
+    from argon.engine.builder import _pagerank
+    from argon.utils.tokens import TokenCounter
+    from argon.engine.incremental import IncrementalSelector
+    
+    # 1. Test TreeSitterAdapter
+    class FakeNode:
+        def __init__(self, text):
+            self.text = text
+            
+    assert TreeSitterAdapter.decode_text(FakeNode(b"hello")) == "hello"
+    assert TreeSitterAdapter.decode_text(FakeNode("world")) == "world"
+    
+    class FakeTree:
+        def __init__(self, root_callable=False):
+            if root_callable:
+                self.root_node = lambda: "root_val"
+            else:
+                self.root_node = "root_val"
+                
+    assert TreeSitterAdapter.get_root(FakeTree(root_callable=True)) == "root_val"
+    assert TreeSitterAdapter.get_root(FakeTree(root_callable=False)) == "root_val"
+
+    # 2. Test Optimized PageRank
+    nodes = ["A", "B", "C"]
+    edges = [{"source": "A", "target": "B"}, {"source": "B", "target": "C"}]
+    ranks = _pagerank(nodes, edges)
+    assert len(ranks) == 3
+    assert ranks["C"] == 1.0
+    assert ranks["A"] < ranks["B"]
+    
+    # 3. Test Multimodel TokenCounter
+    gpt_counter = TokenCounter(model="gpt-4", strict=False)
+    assert gpt_counter.is_gemini is False
+    assert gpt_counter.is_claude is False
+    
+    gemini_counter = TokenCounter(model="gemini-1.5-pro", strict=False)
+    assert gemini_counter.is_gemini is True
+    assert gemini_counter.count("hello world") == 2
+    
+    claude_counter = TokenCounter(model="claude-3-5-sonnet", strict=False)
+    assert claude_counter.is_claude is True
+    assert claude_counter.count("hello world") >= 2
+
+    # 4. Test Cache-Aware Wave Budgets
+    symbols = [
+        {'id': 'a.ts::foo', 'name': 'foo', 'kind': 'func', 'file': 'a.ts',
+         'start_line': 1, 'end_line': 5, 'signature': 'function foo()', 'exported': True}
+    ]
+    selector = IncrementalSelector(symbols, ['foo'], set(), total_budget=10000)
+    selected = selector.get_wave_symbols(1)
+    assert len(selected) <= 1
+
+
+# ===================== Type-Aware Context Expansion =====================
+
+def test_type_aware_context_expansion():
+    from argon.engine.selector import select_precision_symbols
+    
+    graph = {
+        "root": "test-repo",
+        "project_domain": "general",
+        "nodes": [
+            {"id": "main.rs", "type": "rs", "lines": 50},
+            {"id": "types.rs", "type": "rs", "lines": 30}
+        ],
+        "edges": [],
+        "symbol_edges": [],
+        "symbols": [
+            {
+                "id": "main.rs::solve_dc",
+                "name": "solve_dc",
+                "kind": "func",
+                "file": "main.rs",
+                "start_line": 1,
+                "end_line": 5,
+                "signature": "fn solve_dc(state: &mut NewtonState) -> Result<(), String>",
+                "exported": True,
+                "rank": 0.9,
+                "inbound_calls": 0,
+                "outbound_calls": 0,
+            },
+            {
+                "id": "types.rs::NewtonState",
+                "name": "NewtonState",
+                "kind": "struct",
+                "file": "types.rs",
+                "start_line": 10,
+                "end_line": 20,
+                "signature": "struct NewtonState { size: usize }",
+                "exported": True,
+                "rank": 0.1,
+                "inbound_calls": 0,
+                "outbound_calls": 0,
+            }
+        ]
+    }
+    
+    selected, report = select_precision_symbols(
+        graph=graph,
+        task="solve dc",
+        max_tokens=0,
+    )
+    
+    selected_ids = {s["id"] for s in selected}
+    assert "main.rs::solve_dc" in selected_ids
+    assert "types.rs::NewtonState" in selected_ids
+    
+    newton_state_sym = next(s for s in selected if s["id"] == "types.rs::NewtonState")
+    assert "type_dependency" in newton_state_sym.get("selection_reasons", [])
+    
+    selected_budget, report_budget = select_precision_symbols(
+        graph=graph,
+        task="solve dc",
+        max_tokens=20,
+    )
+    assert report_budget.get("omitted_by_budget", 0) > 0
+    assert "budget_recommendation" in report_budget

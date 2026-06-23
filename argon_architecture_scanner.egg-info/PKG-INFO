@@ -10,10 +10,13 @@ Requires-Dist: pathspec>=1.1.1
 Requires-Dist: tree-sitter>=0.25.2
 Requires-Dist: tree-sitter-language-pack>=0.10.0
 Requires-Dist: mcp>=1.27.1
+Requires-Dist: watchdog>=6.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=9.0.0; extra == "dev"
 Requires-Dist: pytest-cov>=7.0.0; extra == "dev"
 Requires-Dist: playwright>=1.59.0; extra == "dev"
+Requires-Dist: ruff>=0.11.0; extra == "dev"
+Requires-Dist: mypy>=1.15.0; extra == "dev"
 Provides-Extra: semantic
 Requires-Dist: sentence-transformers>=3.0.0; extra == "semantic"
 

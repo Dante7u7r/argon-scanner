@@ -35,15 +35,21 @@ def _pagerank(node_ids: List[str], edges: List[Dict[str, str]], iterations: int 
         if src in valid and dst in valid and src != dst:
             incoming[dst].append(src)
             outgoing_count[src] += 1
+            
+    sinks = [i for i in ids if outgoing_count[i] == 0]
+    inv_outgoing = {i: 1.0 / outgoing_count[i] for i in ids if outgoing_count[i] > 0}
     rank = {i: 1.0 / n for i in ids}
+    
+    d_div_n = (1.0 - damping) / n
+    damping_div_n = damping / n
+    
     for _ in range(iterations):
-        sink = sum(rank[i] for i in ids if outgoing_count[i] == 0)
+        sink = sum(rank[i] for i in sinks)
+        const_term = d_div_n + damping_div_n * sink
         new_rank = {}
         delta = 0.0
         for i in ids:
-            value = (1 - damping) / n
-            value += damping * sink / n
-            value += damping * sum(rank[src] / outgoing_count[src] for src in incoming[i] if outgoing_count[src])
+            value = const_term + damping * sum(rank[src] * inv_outgoing[src] for src in incoming[i])
             new_rank[i] = value
             delta += abs(value - rank[i])
         rank = new_rank
@@ -618,13 +624,26 @@ class BuilderMixin:
 
             for sym in node.symbols:
                 source_sid = f"{node.id}::{sym.name}"
-                body = self._symbol_source(node, sym, file_cache)
-                if not body:
-                    continue
-                body_call_names = set(re.findall(r'\b([A-Za-z_]\w*)\s*\(', body))
-                body_qualified_calls = set(
-                    re.findall(r'\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*\.\s*([A-Za-z_]\w*)\s*\(', body)
-                )
+                if sym.calls is not None:
+                    body_call_names = set()
+                    body_qualified_calls = set()
+                    for callee in sym.calls:
+                        callee = callee.strip()
+                        m_qual = re.search(r'\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*(?:\.|::)\s*([A-Za-z_]\w*)$', callee)
+                        if m_qual:
+                            body_qualified_calls.add((m_qual.group(1), m_qual.group(2)))
+                        else:
+                            m_simple = re.search(r'\b([A-Za-z_]\w*)$', callee)
+                            if m_simple:
+                                body_call_names.add(m_simple.group(1))
+                else:
+                    body = self._symbol_source(node, sym, file_cache)
+                    if not body:
+                        continue
+                    body_call_names = set(re.findall(r'\b([A-Za-z_]\w*)\s*\(', body))
+                    body_qualified_calls = set(
+                        re.findall(r'\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*\.\s*([A-Za-z_]\w*)\s*\(', body)
+                    )
 
                 for qualifier, member_name in body_qualified_calls:
                     target = qualified_targets.get((qualifier, member_name))

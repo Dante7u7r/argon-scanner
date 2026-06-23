@@ -42,6 +42,29 @@ TS_DEFAULT_SYMBOLS = {
 }
 
 
+class TreeSitterAdapter:
+    @staticmethod
+    def parse(parser, content: str):
+        try:
+            return parser.parse(content)
+        except Exception:
+            return parser.parse(content.encode('utf-8', errors='replace'))
+
+    @staticmethod
+    def get_root(tree) -> Any:
+        rn = tree.root_node
+        if callable(rn):
+            return rn()
+        return rn
+
+    @staticmethod
+    def decode_text(node) -> str:
+        text = node.text
+        if isinstance(text, bytes):
+            return text.decode('utf-8', errors='replace')
+        return str(text)
+
+
 class TreeSitterExtractor:
     def __init__(self, has_tree_sitter: bool = True, has_process: bool = False, ts_pack=None):
         self._parsers = {}
@@ -61,7 +84,7 @@ class TreeSitterExtractor:
     def _find_name(self, node) -> Optional[str]:
         for child in node.children:
             if child.type in ('identifier', 'name', 'type_identifier', 'property_identifier'):
-                return child.text.decode('utf-8', errors='replace')
+                return TreeSitterAdapter.decode_text(child)
         for child in node.children:
             if 'declarator' in child.type:
                 return self._find_name(child)
@@ -134,6 +157,25 @@ class TreeSitterExtractor:
             seen.add(key)
             signature = getattr(item, 'signature', None) or self._signature(content, start_line)
             exported = self._is_exported(content, start_line) or start_line in export_lines
+            
+            import re
+            symbol_lines = lines[start_line - 1 : end_line]
+            symbol_body = "\n".join(symbol_lines)
+            
+            body_call_names = set(re.findall(r'\b([A-Za-z_]\w*)\s*\(', symbol_body))
+            body_qualified_calls = set(
+                re.findall(r'\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*(?:\.|::)\s*([A-Za-z_]\w*)\s*\(', symbol_body)
+            )
+            body_new_calls = set(
+                re.findall(r'\bnew\s+([A-Za-z_]\w*)\s*\(', symbol_body)
+            )
+            
+            calls_list = list(body_call_names)
+            for qual, member in body_qualified_calls:
+                calls_list.append(f"{qual}.{member}")
+            for constructor in body_new_calls:
+                calls_list.append(constructor)
+                
             symbols.append(Symbol(
                 name=name,
                 kind=self._kind_from_pack(getattr(item, 'kind', None)),
@@ -141,6 +183,7 @@ class TreeSitterExtractor:
                 end_line=end_line,
                 signature=signature or "",
                 exported=exported,
+                calls=calls_list,
             ))
 
         def walk_structure(items: List[Any]) -> None:
@@ -161,30 +204,53 @@ class TreeSitterExtractor:
         if not parser or not hasattr(parser, 'parse'):
             return self._extract_with_process(content, lang)
         try:
-            tree = parser.parse(content.encode('utf-8', errors='replace'))
+            tree = TreeSitterAdapter.parse(parser, content)
+
+            symbol_map = TS_SYMBOL_NODES.get(lang, TS_DEFAULT_SYMBOLS)
+            symbols = []
+            seen = set()
+
+            def collect_calls(n, calls_list, is_root=False):
+                if not is_root and n.type in symbol_map:
+                    return
+                node_type = n.type
+                is_call = ('call' in node_type or 
+                           'invocation' in node_type or 
+                           'new_expression' in node_type or 
+                           'object_creation' in node_type)
+                if is_call:
+                    if n.children:
+                        callee = n.children[0]
+                        if TreeSitterAdapter.decode_text(callee) == 'new' and len(n.children) > 1:
+                            callee = n.children[1]
+                        callee_text = TreeSitterAdapter.decode_text(callee).strip()
+                        if callee_text:
+                            calls_list.append(callee_text)
+                for child in n.children:
+                    collect_calls(child, calls_list, is_root=False)
+
+            def walk(node):
+                if node.type in symbol_map:
+                    name = self._find_name(node)
+                    if name and name not in seen and len(name) > 1:
+                        start_line = node.start_point[0] + 1
+                        calls_list = []
+                        collect_calls(node, calls_list, is_root=True)
+                        symbols.append(Symbol(
+                            name=name,
+                            kind=symbol_map[node.type],
+                            line=start_line,
+                            end_line=node.end_point[0] + 1,
+                            signature=self._signature(content, start_line),
+                            exported=self._is_exported(content, start_line),
+                            calls=calls_list,
+                        ))
+                        seen.add(name)
+                for child in node.children:
+                    walk(child)
+
+            root = TreeSitterAdapter.get_root(tree)
+            walk(root)
+            return symbols
         except Exception:
-            return []
-
-        symbol_map = TS_SYMBOL_NODES.get(lang, TS_DEFAULT_SYMBOLS)
-        symbols = []
-        seen = set()
-
-        def walk(node):
-            if node.type in symbol_map:
-                name = self._find_name(node)
-                if name and name not in seen and len(name) > 1:
-                    start_line = node.start_point[0] + 1
-                    symbols.append(Symbol(
-                        name=name,
-                        kind=symbol_map[node.type],
-                        line=start_line,
-                        end_line=node.end_point[0] + 1,
-                        signature=self._signature(content, start_line),
-                        exported=self._is_exported(content, start_line),
-                    ))
-                    seen.add(name)
-            for child in node.children:
-                walk(child)
-
-        walk(tree.root_node)
-        return symbols
+            return self._extract_with_process(content, lang)
