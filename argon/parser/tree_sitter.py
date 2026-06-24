@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from argon.models import Symbol
 
@@ -38,6 +38,97 @@ TS_DEFAULT_SYMBOLS = {
     'class_definition': 'class', 'class_declaration': 'class',
     'struct_declaration': 'struct', 'interface_declaration': 'interface',
     'enum_declaration': 'enum',
+}
+
+CALL_QUERIES = {
+    'python': {
+        'call': '(call function: (identifier) @callee)',
+        'method_call': (
+            '(call function: (attribute attribute: (identifier) @method)'
+            ' object: (identifier) @object)'
+        ),
+    },
+    'javascript': {
+        'call': '(call_expression function: (identifier) @callee)',
+        'method_call': (
+            '(call_expression function: (member_expression'
+            ' property: (property_identifier) @method)'
+            ' object: (identifier) @object)'
+        ),
+        'new_expression': '(new_expression constructor: (identifier) @constructor)',
+    },
+    'typescript': {
+        'call': '(call_expression function: (identifier) @callee)',
+        'method_call': (
+            '(call_expression function: (member_expression'
+            ' property: (property_identifier) @method)'
+            ' object: (identifier) @object)'
+        ),
+        'new_expression': '(new_expression constructor: (identifier) @constructor)',
+    },
+    'tsx': {
+        'call': '(call_expression function: (identifier) @callee)',
+        'method_call': (
+            '(call_expression function: (member_expression'
+            ' property: (property_identifier) @method)'
+            ' object: (identifier) @object)'
+        ),
+        'new_expression': '(new_expression constructor: (identifier) @constructor)',
+    },
+    'rust': {
+        'call': '(call_expression function: (identifier) @callee)',
+        'method_call': (
+            '(call_expression function: (field_expression'
+            ' field: (field_identifier) @method)'
+            ' value: (identifier) @object)'
+        ),
+    },
+    'go': {
+        'call': '(call_expression function: (identifier) @callee)',
+    },
+    'java': {
+        'call': '(method_invocation name: (identifier) @callee)',
+        'method_call': (
+            '(method_invocation name: (identifier) @callee'
+            ' object: (expression) @object)'
+        ),
+    },
+    'c_sharp': {
+        'call': '(invocation_expression expression: (identifier) @callee)',
+        'method_call': (
+            '(invocation_expression expression:'
+            ' (member_access_expression name: (identifier) @method) @object)'
+        ),
+    },
+    'cpp': {
+        'call': '(call_expression function: (identifier) @callee)',
+        'method_call': (
+            '(call_expression function: (field_expression'
+            ' field: (field_identifier) @method) @object)'
+        ),
+    },
+    'c': {
+        'call': '(call_expression function: (identifier) @callee)',
+    },
+}
+
+CALL_NODE_TYPES = {
+    'python': {'call'},
+    'javascript': {'call_expression', 'new_expression'},
+    'typescript': {'call_expression', 'new_expression'},
+    'tsx': {'call_expression', 'new_expression'},
+    'rust': {'call_expression'},
+    'go': {'call_expression'},
+    'java': {'method_invocation'},
+    'c_sharp': {'invocation_expression'},
+    'cpp': {'call_expression'},
+    'c': {'call_expression'},
+    'ruby': {'call'},
+    'php': {'function_call_expression', 'method_call_expression'},
+    'swift': {'function_call_expression', 'method_call_expression'},
+    'kotlin': {'call_expression'},
+    'scala': {'call_expression'},
+    'lua': {'function_call'},
 }
 
 
@@ -106,7 +197,7 @@ class TreeSitterAdapter:
     @staticmethod
     def decode_text(node, source: str = None) -> str:
         """Extract text from node using byte offsets.
-        
+
         If source is provided, uses byte offsets from node.
         If source is not provided, falls back to checking node.text attribute/method
         (for backward compatibility with tests).
@@ -120,7 +211,7 @@ class TreeSitterAdapter:
                     return source[start:end]
                 except Exception:
                     pass
-        
+
         # Backward compatibility: try to get text from node directly
         # New API: text is a method
         text = None
@@ -136,6 +227,25 @@ class TreeSitterAdapter:
         if isinstance(text, bytes):
             return text.decode('utf-8', errors='replace')
         return str(text)
+
+    @staticmethod
+    def get_child_by_field_name(node, name: str):
+        """Get child by field name, works with both old and new API."""
+        if hasattr(node, 'child_by_field_name'):
+            try:
+                return node.child_by_field_name(name)
+            except Exception:
+                pass
+        # Fallback: find child with matching field name via walk
+        for child in TreeSitterAdapter.get_children(node):
+            if hasattr(child, 'field_name'):
+                try:
+                    fn = child.field_name()
+                    if fn == name:
+                        return child
+                except Exception:
+                    pass
+        return None
 
 
 class TreeSitterExtractor:
@@ -154,7 +264,7 @@ class TreeSitterExtractor:
                 self._parsers[lang] = None
         return self._parsers[lang]
 
-    def _find_name(self, node, source: str) -> Optional[str]:
+    def _find_name(self, node, source: str) -> str | None:
         for child in TreeSitterAdapter.get_children(node):
             child_type = TreeSitterAdapter.get_type(child)
             if child_type in ('identifier', 'name', 'type_identifier', 'property_identifier'):
@@ -196,7 +306,7 @@ class TreeSitterExtractor:
             return 'struct'
         return 'symbol'
 
-    def _extract_with_process(self, content: str, lang: str) -> List[Symbol]:
+    def _extract_with_process(self, content: str, lang: str) -> list[Symbol]:
         if not self._has_process or self._ts_pack is None:
             return []
         try:
@@ -214,8 +324,8 @@ class TreeSitterExtractor:
             if span is not None:
                 export_lines.add(getattr(span, 'start_line', -10) + 1)
 
-        symbols: List[Symbol] = []
-        seen: Set[Tuple[str, int]] = set()
+        symbols: list[Symbol] = []
+        seen: set[tuple[str, int]] = set()
 
         def add_item(item: Any) -> None:
             name = getattr(item, 'name', None)
@@ -261,7 +371,7 @@ class TreeSitterExtractor:
                 calls=calls_list,
             ))
 
-        def walk_structure(items: List[Any]) -> None:
+        def walk_structure(items: list[Any]) -> None:
             for item in items:
                 add_item(item)
                 walk_structure(getattr(item, 'children', []) or [])
@@ -271,7 +381,87 @@ class TreeSitterExtractor:
             add_item(item)
         return symbols
 
-    def extract(self, content: str, ext: str) -> List[Symbol]:
+    def _collect_calls_in_node(self, node, content: str, lang: str) -> list[str]:
+        """Collect all function calls within a node using field-name matching."""
+        calls = []
+        default_calls = {'call', 'call_expression', 'new_expression',
+                         'invocation', 'object_creation'}
+        call_types = CALL_NODE_TYPES.get(lang, default_calls)
+        children = TreeSitterAdapter.get_children(node)
+
+        for child in children:
+            child_type = TreeSitterAdapter.get_type(child)
+
+            if child_type in call_types:
+                callee_text = self._extract_callee_from_call(child, content, lang)
+                if callee_text:
+                    calls.append(callee_text)
+                # Still recurse into call's children (e.g., arguments) to find nested calls
+                # but avoid double-counting by not recursing into 'function' child
+                for grandchild in TreeSitterAdapter.get_children(child):
+                    grandchild_type = TreeSitterAdapter.get_type(grandchild)
+                    if grandchild_type in ('arguments', 'argument_list'):
+                        calls.extend(self._collect_calls_in_node(grandchild, content, lang))
+                continue
+
+            # Recurse into non-call children
+            if child_type not in TS_SYMBOL_NODES.get(lang, TS_DEFAULT_SYMBOLS):
+                calls.extend(self._collect_calls_in_node(child, content, lang))
+
+        return calls
+
+    def _extract_callee_from_call(self, call_node, content: str, lang: str) -> str | None:
+        """Extract callee name from a call node using field-name matching."""
+        fn_node = TreeSitterAdapter.get_child_by_field_name(call_node, 'function')
+        if not fn_node:
+            fn_node = TreeSitterAdapter.get_child_by_field_name(call_node, 'constructor')
+        if not fn_node:
+            fn_node = TreeSitterAdapter.get_child_by_field_name(call_node, 'name')
+
+        if not fn_node:
+            return None
+
+        fn_type = TreeSitterAdapter.get_type(fn_node)
+
+        if fn_type in ('identifier', 'type_identifier', 'property_identifier'):
+            return TreeSitterAdapter.decode_text(fn_node, content)
+
+        if fn_type == 'attribute':
+            # Python: obj.method
+            obj = TreeSitterAdapter.get_child_by_field_name(fn_node, 'object')
+            attr = TreeSitterAdapter.get_child_by_field_name(fn_node, 'attribute')
+            if obj and attr:
+                obj_text = TreeSitterAdapter.decode_text(obj, content)
+                attr_text = TreeSitterAdapter.decode_text(attr, content)
+                return f"{obj_text}.{attr_text}"
+
+        if fn_type == 'member_expression':
+            # TypeScript/JS: obj.method
+            obj = TreeSitterAdapter.get_child_by_field_name(fn_node, 'object')
+            prop = TreeSitterAdapter.get_child_by_field_name(fn_node, 'property')
+            if obj and prop:
+                obj_text = TreeSitterAdapter.decode_text(obj, content)
+                prop_text = TreeSitterAdapter.decode_text(prop, content)
+                return f"{obj_text}.{prop_text}"
+
+        if fn_type == 'field_expression':
+            # Rust: obj.method
+            val = TreeSitterAdapter.get_child_by_field_name(fn_node, 'value')
+            field = TreeSitterAdapter.get_child_by_field_name(fn_node, 'field')
+            if val and field:
+                val_text = TreeSitterAdapter.decode_text(val, content)
+                field_text = TreeSitterAdapter.decode_text(field, content)
+                return f"{val_text}.{field_text}"
+
+        if fn_type == 'call_expression':
+            # Nested call: get the inner function
+            inner_fn = TreeSitterAdapter.get_child_by_field_name(fn_node, 'function')
+            if inner_fn:
+                return self._extract_callee_from_call(fn_node, content, lang)
+
+        return TreeSitterAdapter.decode_text(fn_node, content)
+
+    def extract(self, content: str, ext: str) -> list[Symbol]:
         lang = TS_LANG_MAP.get(ext)
         if not lang:
             return []
@@ -284,37 +474,21 @@ class TreeSitterExtractor:
             symbol_map = TS_SYMBOL_NODES.get(lang, TS_DEFAULT_SYMBOLS)
             symbols = []
             seen = set()
+            scope_stack: list[str] = []
 
-            def collect_calls(n, calls_list, is_root=False):
-                node_type = TreeSitterAdapter.get_type(n)
-                if not is_root and node_type in symbol_map:
-                    return
-                is_call = ('call' in node_type or
-                           'invocation' in node_type or
-                           'new_expression' in node_type or
-                           'object_creation' in node_type)
-                if is_call:
-                    children = TreeSitterAdapter.get_children(n)
-                    if children:
-                        callee = children[0]
-                        if TreeSitterAdapter.decode_text(callee, content) == 'new' and len(children) > 1:
-                            callee = children[1]
-                        callee_text = TreeSitterAdapter.decode_text(callee, content).strip()
-                        if callee_text:
-                            calls_list.append(callee_text)
-                for child in TreeSitterAdapter.get_children(n):
-                    collect_calls(child, calls_list, is_root=False)
-
-            def walk(node):
+            def walk(node, scope_stack: list[str]):
                 node_type = TreeSitterAdapter.get_type(node)
+
                 if node_type in symbol_map:
                     name = self._find_name(node, content)
                     if name and name not in seen and len(name) > 1:
                         start_point = TreeSitterAdapter.get_start_point(node)
                         end_point = TreeSitterAdapter.get_end_point(node)
                         start_line = start_point[0] + 1
-                        calls_list = []
-                        collect_calls(node, calls_list, is_root=True)
+
+                        # Collect calls within this symbol's body
+                        calls_list = self._collect_calls_in_node(node, content, lang)
+
                         symbols.append(Symbol(
                             name=name,
                             kind=symbol_map[node_type],
@@ -325,11 +499,19 @@ class TreeSitterExtractor:
                             calls=calls_list,
                         ))
                         seen.add(name)
+
+                        # Push this symbol as new scope for nested calls
+                        scope_stack.append(name)
+                        for child in TreeSitterAdapter.get_children(node):
+                            walk(child, scope_stack)
+                        scope_stack.pop()
+                        return
+
                 for child in TreeSitterAdapter.get_children(node):
-                    walk(child)
+                    walk(child, scope_stack)
 
             root = TreeSitterAdapter.get_root(tree)
-            walk(root)
+            walk(root, scope_stack)
             return symbols
         except Exception:
             return self._extract_with_process(content, lang)
