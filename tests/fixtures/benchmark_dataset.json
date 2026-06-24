@@ -2,7 +2,7 @@
   "version": 2,
   "description": "Rich benchmark dataset for ARGON precision engine optimization",
   "created": "2026-05-30",
-  "fixtures": ["fixture_ts", "fixture_python", "fixture_java", "fixture_csharp", "fixture_fastapi", "fixture_rust"],
+  "fixtures": ["fixture_ts", "fixture_python", "fixture_java", "fixture_csharp", "fixture_fastapi", "fixture_rust", "fixture_tauri"],
   "cases": [
     {
       "id": "ts-auth-001",
@@ -443,6 +443,72 @@
       "must_not_include": ["authenticate", "hash_password"],
       "expected_tier": {"critical": ["process_payment", "refund_payment"], "workflow": ["Order"]},
       "category": "feature"
+    },
+    {
+      "id": "tauri-auth-001",
+      "fixture": "fixture_tauri",
+      "task": "fix authentication bug when user logs in via frontend",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["authenticate", "hash_password", "validate_token", "User"],
+      "must_not_include": ["calculate_total", "process_payment", "cache_invalidate"],
+      "expected_tier": {"critical": ["authenticate", "hash_password"], "workflow": ["validate_token", "User"]},
+      "category": "bugfix"
+    },
+    {
+      "id": "tauri-order-002",
+      "fixture": "fixture_tauri",
+      "task": "add order creation with cross-language call from frontend",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["place_order", "create_order", "calculate_total", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "validate_token"],
+      "expected_tier": {"critical": ["place_order", "create_order"], "workflow": ["calculate_total", "Order"]},
+      "category": "feature"
+    },
+    {
+      "id": "tauri-payment-003",
+      "fixture": "fixture_tauri",
+      "task": "implement payment refund flow from frontend store",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["refund_payment", "process_payment", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "validate_token"],
+      "expected_tier": {"critical": ["refund_payment", "process_payment"], "workflow": ["Order"]},
+      "category": "feature"
+    },
+    {
+      "id": "tauri-cache-004",
+      "fixture": "fixture_tauri",
+      "task": "add cache invalidation on order status change across layers",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["cache_invalidate", "cache_get", "cache_set", "cancel_order"],
+      "must_not_include": ["authenticate", "hash_password", "validate_token"],
+      "expected_tier": {"critical": ["cache_invalidate", "cancel_order"], "workflow": ["cache_get", "cache_set"]},
+      "category": "refactor"
+    },
+    {
+      "id": "tauri-cross-005",
+      "fixture": "fixture_tauri",
+      "task": "add user authentication to order creation flow (TS -> Rust)",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["authenticate", "place_order", "create_user"],
+      "must_not_include": ["cache_invalidate"],
+      "expected_tier": {"critical": ["authenticate", "place_order"], "workflow": ["create_user"]},
+      "category": "feature"
+    },
+    {
+      "id": "tauri-security-006",
+      "fixture": "fixture_tauri",
+      "task": "add rate limiting to authentication commands",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["authenticate", "validate_token", "hash_password"],
+      "must_not_include": ["calculate_total", "process_payment", "cache_invalidate"],
+      "expected_tier": {"critical": ["authenticate", "validate_token"], "workflow": ["hash_password"]},
+      "category": "security"
     }
   ]
 }

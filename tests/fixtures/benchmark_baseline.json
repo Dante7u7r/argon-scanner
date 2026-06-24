@@ -1,18 +1,19 @@
 {
-  "case_count": 40,
-  "aggregate_recall": 0.8458,
+  "case_count": 46,
+  "aggregate_recall": 0.8478,
   "fixture_recall": {
     "fixture_csharp": 1.0,
     "fixture_fastapi": 0.6898,
     "fixture_java": 1.0,
     "fixture_python": 1.0,
     "fixture_rust": 1.0,
+    "fixture_tauri": 0.8611,
     "fixture_ts": 0.9167
   },
   "category_recall": {
-    "bugfix": 0.925,
-    "feature": 0.8299,
-    "refactor": 0.8333,
+    "bugfix": 0.9091,
+    "feature": 0.8395,
+    "refactor": 0.875,
     "security": 0.6667,
     "tests": 0.75
   },
@@ -296,8 +297,50 @@
       "category": "feature",
       "recall": 1.0,
       "score": 0.7938
+    },
+    {
+      "id": "tauri-auth-001",
+      "fixture": "fixture_tauri",
+      "category": "bugfix",
+      "recall": 0.75,
+      "score": 0.6125
+    },
+    {
+      "id": "tauri-order-002",
+      "fixture": "fixture_tauri",
+      "category": "feature",
+      "recall": 0.75,
+      "score": 0.65
+    },
+    {
+      "id": "tauri-payment-003",
+      "fixture": "fixture_tauri",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.775
+    },
+    {
+      "id": "tauri-cache-004",
+      "fixture": "fixture_tauri",
+      "category": "refactor",
+      "recall": 1.0,
+      "score": 0.7375
+    },
+    {
+      "id": "tauri-cross-005",
+      "fixture": "fixture_tauri",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.725
+    },
+    {
+      "id": "tauri-security-006",
+      "fixture": "fixture_tauri",
+      "category": "security",
+      "recall": 0.6667,
+      "score": 0.6292
     }
   ],
-  "dataset_hash": "14c6ae9aec419ec6",
+  "dataset_hash": "30dafaffe6bd232b",
   "dataset_version": 2
 }
