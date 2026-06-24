@@ -294,6 +294,7 @@ def build_fixture_graphs(dataset: Dict[str, Any]) -> Dict[str, Dict]:
         "fixture_java": os.path.join(ROOT, "tests", "fixtures", "fixture_java"),
         "fixture_csharp": os.path.join(ROOT, "tests", "fixtures", "fixture_csharp"),
         "fixture_fastapi": os.path.join(ROOT, "tests", "fixtures", "fixture_fastapi"),
+        "fixture_rust": os.path.join(ROOT, "tests", "fixtures", "fixture_rust"),
     }
 
     graphs = {}

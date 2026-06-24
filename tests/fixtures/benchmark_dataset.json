@@ -2,7 +2,7 @@
   "version": 2,
   "description": "Rich benchmark dataset for ARGON precision engine optimization",
   "created": "2026-05-30",
-  "fixtures": ["fixture_ts", "fixture_python", "fixture_java", "fixture_csharp", "fixture_fastapi"],
+  "fixtures": ["fixture_ts", "fixture_python", "fixture_java", "fixture_csharp", "fixture_fastapi", "fixture_rust"],
   "cases": [
     {
       "id": "ts-auth-001",
@@ -366,6 +366,83 @@
       "must_not_include": ["authenticate", "create_user"],
       "expected_tier": {"critical": ["cache_get", "cache_set", "cache_invalidate"]},
       "category": "refactor"
+    },
+    {
+      "id": "rust-auth-001",
+      "fixture": "fixture_rust",
+      "task": "fix authentication bug when email is empty",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["authenticate", "create_user", "User"],
+      "must_not_include": ["calculate_total", "place_order", "cache_set"],
+      "expected_tier": {"critical": ["authenticate", "create_user"], "workflow": ["User"]},
+      "category": "bugfix"
+    },
+    {
+      "id": "rust-order-002",
+      "fixture": "fixture_rust",
+      "task": "fix order total calculation with wrong items",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["place_order", "calculate_total", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "cache_get"],
+      "expected_tier": {"critical": ["place_order", "calculate_total"], "workflow": ["Order"]},
+      "category": "bugfix"
+    },
+    {
+      "id": "rust-payment-003",
+      "fixture": "fixture_rust",
+      "task": "implement payment refund flow with idempotency",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["refund_payment", "process_payment", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "create_user"],
+      "expected_tier": {"critical": ["refund_payment", "process_payment"], "workflow": ["Order"]},
+      "category": "feature"
+    },
+    {
+      "id": "rust-cache-004",
+      "fixture": "fixture_rust",
+      "task": "add cache layer for order lookups",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["cache_get", "cache_set", "cache_invalidate"],
+      "must_not_include": ["authenticate", "create_user", "calculate_total"],
+      "expected_tier": {"critical": ["cache_get", "cache_set", "cache_invalidate"]},
+      "category": "feature"
+    },
+    {
+      "id": "rust-user-005",
+      "fixture": "fixture_rust",
+      "task": "implement user profile update endpoint",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["User", "create_user"],
+      "must_not_include": ["calculate_total", "refund_payment", "cache_invalidate"],
+      "expected_tier": {"critical": ["User", "create_user"]},
+      "category": "feature"
+    },
+    {
+      "id": "rust-cross-006",
+      "fixture": "fixture_rust",
+      "task": "add user authentication to order creation flow",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["authenticate", "place_order", "create_user"],
+      "must_not_include": ["cache_invalidate"],
+      "expected_tier": {"critical": ["authenticate", "place_order"], "workflow": ["create_user"]},
+      "category": "feature"
+    },
+    {
+      "id": "rust-error-007",
+      "fixture": "fixture_rust",
+      "task": "add error handling to payment processing",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["process_payment", "refund_payment", "Order"],
+      "must_not_include": ["authenticate", "hash_password"],
+      "expected_tier": {"critical": ["process_payment", "refund_payment"], "workflow": ["Order"]},
+      "category": "feature"
     }
   ]
 }

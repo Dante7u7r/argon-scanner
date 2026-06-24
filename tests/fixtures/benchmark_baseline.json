@@ -1,16 +1,17 @@
 {
-  "case_count": 33,
-  "aggregate_recall": 0.8131,
+  "case_count": 40,
+  "aggregate_recall": 0.8458,
   "fixture_recall": {
     "fixture_csharp": 1.0,
     "fixture_fastapi": 0.6898,
     "fixture_java": 1.0,
     "fixture_python": 1.0,
+    "fixture_rust": 1.0,
     "fixture_ts": 0.9167
   },
   "category_recall": {
-    "bugfix": 0.9062,
-    "feature": 0.7851,
+    "bugfix": 0.925,
+    "feature": 0.8299,
     "refactor": 0.8333,
     "security": 0.6667,
     "tests": 0.75
@@ -246,8 +247,57 @@
       "category": "refactor",
       "recall": 1.0,
       "score": 0.8438
+    },
+    {
+      "id": "rust-auth-001",
+      "fixture": "fixture_rust",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.7938
+    },
+    {
+      "id": "rust-order-002",
+      "fixture": "fixture_rust",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.7938
+    },
+    {
+      "id": "rust-payment-003",
+      "fixture": "fixture_rust",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.775
+    },
+    {
+      "id": "rust-cache-004",
+      "fixture": "fixture_rust",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.8438
+    },
+    {
+      "id": "rust-user-005",
+      "fixture": "fixture_rust",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.8125
+    },
+    {
+      "id": "rust-cross-006",
+      "fixture": "fixture_rust",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7938
+    },
+    {
+      "id": "rust-error-007",
+      "fixture": "fixture_rust",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7938
     }
   ],
-  "dataset_hash": "5a981a4f9ebec3a9",
+  "dataset_hash": "14c6ae9aec419ec6",
   "dataset_version": 2
 }
