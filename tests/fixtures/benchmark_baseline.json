@@ -1,0 +1,253 @@
+{
+  "case_count": 33,
+  "aggregate_recall": 0.8131,
+  "fixture_recall": {
+    "fixture_csharp": 1.0,
+    "fixture_fastapi": 0.6898,
+    "fixture_java": 1.0,
+    "fixture_python": 1.0,
+    "fixture_ts": 0.9167
+  },
+  "category_recall": {
+    "bugfix": 0.9062,
+    "feature": 0.7851,
+    "refactor": 0.8333,
+    "security": 0.6667,
+    "tests": 0.75
+  },
+  "cases": [
+    {
+      "id": "ts-auth-001",
+      "fixture": "fixture_ts",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.775
+    },
+    {
+      "id": "ts-order-002",
+      "fixture": "fixture_ts",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.775
+    },
+    {
+      "id": "ts-cache-003",
+      "fixture": "fixture_ts",
+      "category": "refactor",
+      "recall": 1.0,
+      "score": 0.8438
+    },
+    {
+      "id": "ts-user-004",
+      "fixture": "fixture_ts",
+      "category": "feature",
+      "recall": 0.6667,
+      "score": 0.6292
+    },
+    {
+      "id": "ts-payment-005",
+      "fixture": "fixture_ts",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.775
+    },
+    {
+      "id": "py-auth-001",
+      "fixture": "fixture_python",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.7938
+    },
+    {
+      "id": "py-order-002",
+      "fixture": "fixture_python",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.7938
+    },
+    {
+      "id": "py-cache-003",
+      "fixture": "fixture_python",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.8438
+    },
+    {
+      "id": "java-auth-001",
+      "fixture": "fixture_java",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.825
+    },
+    {
+      "id": "java-order-002",
+      "fixture": "fixture_java",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.825
+    },
+    {
+      "id": "cs-order-001",
+      "fixture": "fixture_csharp",
+      "category": "bugfix",
+      "recall": 1.0,
+      "score": 0.7583
+    },
+    {
+      "id": "fastapi-auth-001",
+      "fixture": "fixture_fastapi",
+      "category": "bugfix",
+      "recall": 0.75,
+      "score": 0.6083
+    },
+    {
+      "id": "fastapi-order-002",
+      "fixture": "fixture_fastapi",
+      "category": "bugfix",
+      "recall": 0.5,
+      "score": 0.4417
+    },
+    {
+      "id": "fastapi-payment-003",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.75,
+      "score": 0.6375
+    },
+    {
+      "id": "fastapi-cache-004",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7958
+    },
+    {
+      "id": "fastapi-user-005",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.6667,
+      "score": 0.5583
+    },
+    {
+      "id": "fastapi-crud-006",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.5,
+      "score": 0.4208
+    },
+    {
+      "id": "fastapi-test-007",
+      "fixture": "fixture_fastapi",
+      "category": "tests",
+      "recall": 0.5,
+      "score": 0.4792
+    },
+    {
+      "id": "fastapi-security-008",
+      "fixture": "fixture_fastapi",
+      "category": "security",
+      "recall": 0.6667,
+      "score": 0.5417
+    },
+    {
+      "id": "fastapi-refund-009",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7375
+    },
+    {
+      "id": "fastapi-stats-010",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.725
+    },
+    {
+      "id": "fastapi-cross-011",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.75,
+      "score": 0.5792
+    },
+    {
+      "id": "fastapi-refactor-012",
+      "fixture": "fixture_fastapi",
+      "category": "refactor",
+      "recall": 0.5,
+      "score": 0.5167
+    },
+    {
+      "id": "fastapi-error-013",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.0,
+      "score": 0.2
+    },
+    {
+      "id": "fastapi-config-014",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7917
+    },
+    {
+      "id": "fastapi-validation-015",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.3333,
+      "score": 0.4042
+    },
+    {
+      "id": "fastapi-logging-016",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7625
+    },
+    {
+      "id": "fastapi-caching-017",
+      "fixture": "fixture_fastapi",
+      "category": "feature",
+      "recall": 0.5,
+      "score": 0.4792
+    },
+    {
+      "id": "fastapi-test-018",
+      "fixture": "fixture_fastapi",
+      "category": "tests",
+      "recall": 1.0,
+      "score": 0.5583
+    },
+    {
+      "id": "ts-cross-006",
+      "fixture": "fixture_ts",
+      "category": "feature",
+      "recall": 0.75,
+      "score": 0.55
+    },
+    {
+      "id": "ts-error-007",
+      "fixture": "fixture_ts",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.775
+    },
+    {
+      "id": "py-cross-004",
+      "fixture": "fixture_python",
+      "category": "feature",
+      "recall": 1.0,
+      "score": 0.7938
+    },
+    {
+      "id": "py-refactor-005",
+      "fixture": "fixture_python",
+      "category": "refactor",
+      "recall": 1.0,
+      "score": 0.8438
+    }
+  ],
+  "dataset_hash": "5a981a4f9ebec3a9",
+  "dataset_version": 2
+}
