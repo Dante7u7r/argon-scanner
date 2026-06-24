@@ -1,9 +1,0 @@
-argon
-argon_bench
-argon_deps
-argon_laravel
-argon_mcp
-argon_quality_bench
-argon_semantic
-argon_view
-argon_watch
