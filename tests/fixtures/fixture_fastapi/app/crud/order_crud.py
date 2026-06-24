@@ -1,5 +1,6 @@
-from sqlalchemy.orm import Session
 from app.models.order import Order, OrderItem
+from sqlalchemy.orm import Session
+
 
 def get_order(db: Session, order_id: int) -> Order:
     return db.query(Order).filter(Order.id == order_id).first()

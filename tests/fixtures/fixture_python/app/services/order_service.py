@@ -1,6 +1,7 @@
 from ..models.order import Order, calculate_total
 from ..utils.cache import cache_get, cache_set
 
+
 def place_order(items: list) -> dict:
     total = calculate_total(items)
     order = Order(id='o1', user_id='u1', total=total)

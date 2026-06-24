@@ -1,7 +1,8 @@
-from sqlalchemy.orm import Session
+from app.core.security import get_password_hash, verify_password
 from app.models.user import User
 from app.schemas.user import UserCreate
-from app.core.security import get_password_hash, verify_password
+from sqlalchemy.orm import Session
+
 
 def get_user_by_email(db: Session, email: str) -> User:
     return db.query(User).filter(User.email == email).first()

@@ -2,7 +2,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from argon.models import Symbol
-from argon.utils.noise import STDLIB_NOISE, _KW_BLACKLIST, _DOCSTRING_PATS, _COMMENT_PATS, IMPORT_EXTS
+from argon.utils.noise import _COMMENT_PATS, _DOCSTRING_PATS, _KW_BLACKLIST, IMPORT_EXTS, STDLIB_NOISE
 
 _RE_KEYWORD_FUNC = re.compile(
     r'\b(?:def|fn|func|function|procedure|sub|method)\s+([\w]+)\s*[(<]'

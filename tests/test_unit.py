@@ -1,11 +1,10 @@
-import os
 import json
+import os
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
-from argon.engine.graph import _pagerank, ArgonEngine
-
+from argon.engine.graph import ArgonEngine, _pagerank
 
 # ─── _pagerank ────────────────────────────────────────────────────────
 

@@ -33,20 +33,20 @@ def is_call(line: str) -> bool:
 def is_line_active(idx: int, total: int, line: str, keywords: List[str]) -> bool:
     if idx < 2 or idx == total - 1:
         return True
-    
+
     line_stripped = line.strip()
     if not line_stripped:
         return False
-        
+
     if is_control_flow(line_stripped):
         return True
-        
+
     if contains_keywords(line_stripped, keywords):
         return True
-        
+
     if is_call(line_stripped):
         return True
-        
+
     return False
 
 def get_active_mask(lines: List[str], keywords: List[str]) -> List[bool]:
@@ -55,7 +55,7 @@ def get_active_mask(lines: List[str], keywords: List[str]) -> List[bool]:
     for i in range(total):
         if is_line_active(i, total, lines[i], keywords):
             active[i] = True
-            
+
     masked = [False] * total
     for i in range(total):
         if active[i]:
@@ -64,16 +64,16 @@ def get_active_mask(lines: List[str], keywords: List[str]) -> List[bool]:
                 masked[i - 1] = True
             if i < total - 1:
                 masked[i + 1] = True
-                
+
     return masked
 
 def slice_symbol_body(lines: List[str], keywords: List[str], ext: str) -> str:
     if len(lines) <= 20:
         return "\n".join(lines)
-        
+
     masked = get_active_mask(lines, keywords)
     comment = get_comment_indicator(ext)
-    
+
     output_lines = []
     i = 0
     total = len(lines)
@@ -93,7 +93,7 @@ def slice_symbol_body(lines: List[str], keywords: List[str], ext: str) -> str:
                 first_line = lines[start_inactive]
                 indent = first_line[:len(first_line) - len(first_line.lstrip())]
                 output_lines.append(f"{indent}{comment} ... [omitted {run_len} lines] ...")
-                
+
     return "\n".join(output_lines)
 
 def truncate_snippet(snippet: str, max_tokens: int) -> str:
@@ -118,7 +118,7 @@ def read_symbol_snippet(root: str, parser, symbol: Dict[str, Any], max_lines: in
     symbol_lines = lines[start - 1:end]
     ext = os.path.splitext(symbol['file'])[1]
     sliced = slice_symbol_body(symbol_lines, [], ext)
-    
+
     sliced_lines = sliced.splitlines()
     if len(sliced_lines) > max_lines:
         sliced = "\n".join(sliced_lines[:max_lines])

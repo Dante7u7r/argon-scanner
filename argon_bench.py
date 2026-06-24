@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Quality benchmarks for Argon Precision context retrieval.
 
 The benchmark is intentionally centered on the product goal: can ARGON put

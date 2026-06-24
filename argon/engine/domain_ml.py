@@ -7,7 +7,6 @@ import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
-
 DOMAIN_PROTOTYPES = {
     'calculator': [
         'calculator math expression parser evaluate sum subtract multiply divide',

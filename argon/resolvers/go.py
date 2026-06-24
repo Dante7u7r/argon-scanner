@@ -16,7 +16,7 @@ class GoResolver:
         if not os.path.exists(go_mod):
             return
         try:
-            with open(go_mod, 'r', encoding='utf-8') as f:
+            with open(go_mod, encoding='utf-8') as f:
                 for line in f:
                     match = re.match(r'^module\s+(\S+)', line)
                     if match:

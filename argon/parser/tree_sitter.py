@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from argon.models import Symbol
 
-
 TS_LANG_MAP = {
     'py': 'python', 'js': 'javascript', 'jsx': 'javascript',
     'ts': 'typescript', 'tsx': 'tsx',
@@ -157,11 +156,11 @@ class TreeSitterExtractor:
             seen.add(key)
             signature = getattr(item, 'signature', None) or self._signature(content, start_line)
             exported = self._is_exported(content, start_line) or start_line in export_lines
-            
+
             import re
             symbol_lines = lines[start_line - 1 : end_line]
             symbol_body = "\n".join(symbol_lines)
-            
+
             body_call_names = set(re.findall(r'\b([A-Za-z_]\w*)\s*\(', symbol_body))
             body_qualified_calls = set(
                 re.findall(r'\b([A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*(?:\.|::)\s*([A-Za-z_]\w*)\s*\(', symbol_body)
@@ -169,13 +168,13 @@ class TreeSitterExtractor:
             body_new_calls = set(
                 re.findall(r'\bnew\s+([A-Za-z_]\w*)\s*\(', symbol_body)
             )
-            
+
             calls_list = list(body_call_names)
             for qual, member in body_qualified_calls:
                 calls_list.append(f"{qual}.{member}")
             for constructor in body_new_calls:
                 calls_list.append(constructor)
-                
+
             symbols.append(Symbol(
                 name=name,
                 kind=self._kind_from_pack(getattr(item, 'kind', None)),
@@ -214,9 +213,9 @@ class TreeSitterExtractor:
                 if not is_root and n.type in symbol_map:
                     return
                 node_type = n.type
-                is_call = ('call' in node_type or 
-                           'invocation' in node_type or 
-                           'new_expression' in node_type or 
+                is_call = ('call' in node_type or
+                           'invocation' in node_type or
+                           'new_expression' in node_type or
                            'object_creation' in node_type)
                 if is_call:
                     if n.children:

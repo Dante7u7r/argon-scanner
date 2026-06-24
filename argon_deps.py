@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ARGON DEPENDENCY MANAGER (JIT Auto-Bootstrap)
 ---------------------------------------------
@@ -9,9 +8,9 @@ Uses ONLY stdlib — this module must never have external dependencies.
 """
 
 import importlib
+import os
 import subprocess
 import sys
-import os
 
 # Suppress pip's "new version available" noise
 os.environ.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
@@ -48,11 +47,11 @@ def _pip_install(package: str, heavy: bool = False, description: str = "") -> bo
         label += f" ({description})"
 
     if heavy:
-        print(f"[!] =========================================================", file=sys.stderr)
+        print("[!] =========================================================", file=sys.stderr)
         print(f"[!]  ARGON TIER-S: Instalando {label}", file=sys.stderr)
-        print(f"[!]  ADVERTENCIA: Descarga masiva (>2GB con PyTorch).", file=sys.stderr)
-        print(f"[!]  La terminal tardara varios minutos. NO cierres.", file=sys.stderr)
-        print(f"[!] =========================================================", file=sys.stderr)
+        print("[!]  ADVERTENCIA: Descarga masiva (>2GB con PyTorch).", file=sys.stderr)
+        print("[!]  La terminal tardara varios minutos. NO cierres.", file=sys.stderr)
+        print("[!] =========================================================", file=sys.stderr)
     else:
         print(f"[*] Auto-instalando: {label}...", file=sys.stderr)
 

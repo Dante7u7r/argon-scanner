@@ -1,6 +1,7 @@
 import pytest
 from app.services.payment_service import PaymentProcessor
 
+
 def test_process_payment():
     processor = PaymentProcessor()
     result = processor.process_payment(order_id=1, amount=99.99)

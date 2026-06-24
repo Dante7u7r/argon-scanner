@@ -1,8 +1,8 @@
 from pathlib import Path
 
 import pytest
-
 from conftest import run_argon
+
 import argon_deps
 import argon_view
 

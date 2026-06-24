@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ARGON QUALITY BENCHMARK v1.0
 -----------------------------
@@ -17,7 +16,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from argon import ArgonEngine
 from argon_bench import score_graph
-
 
 # =========================================================================
 # FIXTURE GENERATOR

@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from argon.engine.keywords import extract_task_keywords
 from argon.engine.roles import role_score_boost
-from argon.engine.testmap import find_test_counterparts as _find_test_counterparts
 from argon.engine.scorer import (
     clear_score_cache,
     compute_idf,
@@ -18,12 +17,13 @@ from argon.engine.scorer import (
     is_weak_file_only_match,
     score_symbol_for_task,
     symbol_match_profile,
-    symbol_tokens,
     symbol_token_cost,
+    symbol_tokens,
     task_focus_tokens,
     task_intents,
 )
 from argon.engine.snippets import read_symbol_snippet
+from argon.engine.testmap import find_test_counterparts as _find_test_counterparts
 
 
 def _personalized_pagerank(

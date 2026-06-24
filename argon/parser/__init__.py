@@ -2,14 +2,14 @@ import os
 from typing import List, Optional, Tuple
 
 from argon.models import ProjectNode, Symbol
-from argon.parser.tree_sitter import TreeSitterExtractor, TS_LANG_MAP
 from argon.parser.regex import (
-    _regex_extract,
-    _extract_import_records,
-    _extract_cortex,
-    _infer_symbol_end_line,
     IMPORT_EXTS,
+    _extract_cortex,
+    _extract_import_records,
+    _infer_symbol_end_line,
+    _regex_extract,
 )
+from argon.parser.tree_sitter import TS_LANG_MAP, TreeSitterExtractor
 
 
 class UniversalParser:
@@ -25,7 +25,7 @@ class UniversalParser:
     def safe_read(self, filepath: str) -> str:
         for enc in ['utf-8', 'utf-16', 'latin-1', 'cp1252']:
             try:
-                with open(filepath, 'r', encoding=enc) as f:
+                with open(filepath, encoding=enc) as f:
                     return f.read()
             except Exception:
                 continue

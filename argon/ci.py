@@ -22,7 +22,7 @@ class CIBaseline:
         if not os.path.exists(self.baseline_path):
             return None
         try:
-            with open(self.baseline_path, 'r', encoding='utf-8') as f:
+            with open(self.baseline_path, encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
             return None

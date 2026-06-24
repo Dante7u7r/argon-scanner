@@ -1,5 +1,6 @@
 from ..models.user import User, create_user
 
+
 def authenticate(email: str, password: str) -> User:
     if not email or not password:
         raise ValueError('Invalid credentials')

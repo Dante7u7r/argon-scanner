@@ -1,7 +1,8 @@
-from sqlalchemy.orm import Session
 from app.models.order import Order, OrderItem, OrderStatus
 from app.schemas.order import OrderCreate
-from app.services.cache_service import cache_get, cache_set, cache_invalidate
+from app.services.cache_service import cache_get, cache_invalidate, cache_set
+from sqlalchemy.orm import Session
+
 
 def create_order(db: Session, user_id: int, order_in: OrderCreate) -> Order:
     order = Order(user_id=user_id, shipping_address=order_in.shipping_address)

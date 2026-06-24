@@ -3,7 +3,6 @@
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-
 CONJUNCTIONS = {'and', 'y', 'e', '&', 'plus', 'also', 'with', 'con', 'und', 'et'}
 ACTION_VERBS = {
     'add', 'create', 'implement', 'fix', 'update', 'modify', 'refactor', 'optimize',

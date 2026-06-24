@@ -2,8 +2,8 @@ import argparse
 import json
 import os
 
-from argon import ts_pack, tiktoken, pathspec
-from argon.engine.graph import ArgonEngine, PRECISION_BUDGET_PROFILES
+from argon import pathspec, tiktoken, ts_pack
+from argon.engine.graph import PRECISION_BUDGET_PROFILES, ArgonEngine
 
 
 def main():

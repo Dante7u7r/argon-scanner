@@ -1,10 +1,10 @@
+from app.core.database import get_db
+from app.core.security import create_access_token, decode_access_token
+from app.schemas.user import Token, UserCreate, UserResponse
+from app.services.user_service import authenticate_user, create_user, get_user_by_email
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from app.schemas.user import UserCreate, UserResponse, Token
-from app.services.user_service import authenticate_user, create_user, get_user_by_email
-from app.core.security import create_access_token, decode_access_token
-from app.core.database import get_db
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ARGON VIEW v9.0 -- UNIVERSAL VISUALIZER
 -----------------------------------------
@@ -7,11 +6,11 @@ Inyecta los datos del escaneo en la interfaz visual.
 Puede abrirse en el navegador o solo generar el HTML (modo headless).
 """
 
-import sys
 import json
 import os
+import sys
 import webbrowser
-from typing import Optional, Dict
+from typing import Dict, Optional
 
 from argon_deps import ensure as _ensure_dep
 
@@ -27,7 +26,7 @@ class ArgonVisualizer:
             print("[!] Ejecuta primero: python argon.py . --context")
             return None
         try:
-            with open(self.json_path, 'r', encoding='utf-8') as f:
+            with open(self.json_path, encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
             print(f"[!] Error al leer JSON: {e}")
@@ -38,7 +37,7 @@ class ArgonVisualizer:
             print(f"[!] Template no encontrado: {self.template_path}")
             return None
         try:
-            with open(self.template_path, 'r', encoding='utf-8') as f:
+            with open(self.template_path, encoding='utf-8') as f:
                 return f.read()
         except Exception as e:
             print(f"[!] Error al leer template: {e}")

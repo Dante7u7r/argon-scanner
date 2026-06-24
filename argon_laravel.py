@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Static Laravel adapter for Argon.
 
 This adapter intentionally avoids mutating commands. It reads Laravel structure,
@@ -10,7 +9,6 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, List
-
 
 _ROUTE_RE = re.compile(
     r"Route::(?P<method>get|post|put|patch|delete|resource|apiResource|match|any)\s*\((?P<body>.*?)\)\s*;",

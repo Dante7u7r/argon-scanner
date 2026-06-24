@@ -1,6 +1,7 @@
-from typing import Optional
-from decimal import Decimal
 import uuid
+from decimal import Decimal
+from typing import Optional
+
 
 class PaymentProcessor:
     def __init__(self, api_key: str = "test-key"):

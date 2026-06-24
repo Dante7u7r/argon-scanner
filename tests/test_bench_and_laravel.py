@@ -3,13 +3,13 @@ from pathlib import Path
 
 from argon import ArgonEngine
 from argon_bench import score_graph
+from argon_laravel import laravel_overview, laravel_recent_errors, laravel_routes, laravel_schema
 from argon_quality_bench import (
     BENCHMARK_SPECS,
     create_fixture_python,
     create_fixture_typescript,
     create_fixture_typescript_noisy,
 )
-from argon_laravel import laravel_overview, laravel_routes, laravel_schema, laravel_recent_errors
 
 
 def test_quality_benchmark_scores_expected_symbols(monorepo_project: Path):

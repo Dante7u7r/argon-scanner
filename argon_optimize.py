@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT))
 
 from argon.engine.graph import ArgonEngine
 
-
 # =========================================================================
 # BENCHMARK DATASET LOADER
 # =========================================================================
@@ -26,7 +25,7 @@ from argon.engine.graph import ArgonEngine
 def load_benchmark_dataset(path: str = None) -> Dict[str, Any]:
     if path is None:
         path = os.path.join(ROOT, "tests", "fixtures", "benchmark_dataset.json")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -221,7 +220,7 @@ def run_gate(
     bp = _baseline_path(baseline_path)
     baseline = None
     if os.path.exists(bp):
-        with open(bp, "r", encoding="utf-8") as f:
+        with open(bp, encoding="utf-8") as f:
             baseline = json.load(f)
         b_agg = baseline.get("aggregate_recall", 0.0)
         drop = round(b_agg - agg, 4)
@@ -263,10 +262,10 @@ def _print_gate_report(report: Dict[str, Any]) -> None:
     print(f"{'=' * 60}")
     print(f"Aggregate recall: {agg:.4f}")
 
-    print(f"\nBy fixture:")
+    print("\nBy fixture:")
     for f, r in report["fixture_recall"].items():
         print(f"  {f:20s} {r:.4f}")
-    print(f"\nBy category:")
+    print("\nBy category:")
     for c, r in report["category_recall"].items():
         print(f"  {c:20s} {r:.4f}")
 
@@ -280,7 +279,7 @@ def _print_gate_report(report: Dict[str, Any]) -> None:
         for v in report["violations"]:
             print(f"  x {v}")
     else:
-        print(f"\nPASS — gate OK")
+        print("\nPASS — gate OK")
     print(f"{'=' * 60}")
 
 

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ARGON MCP v3.0 -- MODEL CONTEXT PROTOCOL SERVER
 -------------------------------------------------
 Token-budgeted queries. Usa Precision context cuando el grafo lo soporta.
 """
 
-import sys
+import inspect
 import json
 import os
-import inspect
+import sys
 from collections import Counter
 from typing import Any, Dict, List, Optional
 
@@ -67,8 +66,10 @@ class ArgonMCPServer:
     def _init_laravel(self) -> None:
         try:
             from argon_laravel import (
-                laravel_overview, laravel_routes, laravel_schema,
+                laravel_overview,
                 laravel_recent_errors,
+                laravel_routes,
+                laravel_schema,
             )
             self._laravel_overview = laravel_overview
             self._laravel_routes = laravel_routes
@@ -100,7 +101,7 @@ class ArgonMCPServer:
             mtime = os.path.getmtime(self._graph_path)
             if self._graph_cache is not None and self._graph_cache.get('_mtime') == mtime:
                 return self._graph_cache
-            with open(self._graph_path, 'r', encoding='utf-8') as f:
+            with open(self._graph_path, encoding='utf-8') as f:
                 self._graph_cache = json.load(f)
                 self._graph_cache['_mtime'] = mtime
             return self._graph_cache

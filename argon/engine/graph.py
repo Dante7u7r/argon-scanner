@@ -1,57 +1,111 @@
 import json
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
-
 from xml.sax.saxutils import escape as xml_escape
 
-from argon.engine.builder import BuilderMixin, _pagerank
-from argon.engine.hotspots import GitAnalyzer
-from argon.engine.keywords import extract_task_keywords
-from argon.engine.scorer import (
-    identifier_tokens as _identifier_tokens_fn,
-    symbol_tokens as _symbol_tokens_fn,
-    symbol_match_profile as _symbol_match_profile_fn,
-    score_symbol_for_task as _score_symbol_for_task_fn,
-    compute_idf as _compute_idf_fn,
-    task_focus_tokens as _task_focus_tokens_fn,
-    task_intents as _task_intents_fn,
-    is_noise_symbol_for_task as _is_noise_symbol_for_task_fn,
-    is_generic_type_symbol as _is_generic_type_symbol_fn,
-    is_weak_file_only_match as _is_weak_file_only_match_fn,
-    is_unrequested_test_symbol as _is_unrequested_test_symbol_fn,
-    is_isolated_focus_match as _is_isolated_focus_match_fn,
-    symbol_token_cost as _symbol_token_cost_fn,
+# Backward-compatible re-exports
+from argon.engine.builder import (
+    BuilderMixin,
+    _pagerank,  # noqa
 )
-from argon.engine.snippets import (
-    truncate_snippet as _truncate_snippet_fn,
-    read_symbol_snippet as _read_symbol_snippet_fn,
-    read_contextual_snippet as _read_contextual_snippet_fn,
+from argon.engine.formatter import (
+    build_precision_compact as _build_precision_compact_fn,
 )
-from argon.engine.selector import (
-    edge_maps as _edge_maps_fn,
-    context_tier as _context_tier_fn,
-    support_symbol_factor as _support_symbol_factor_fn,
-    neighbor_score as _neighbor_score_fn,
-    select_precision_symbols as _select_precision_symbols_fn,
+from argon.engine.formatter import (
+    build_precision_json_payload as _build_precision_json_payload_fn,
+)
+from argon.engine.formatter import (
+    compact_precision_symbol as _compact_precision_symbol_fn,
+)
+from argon.engine.formatter import (
+    fit_expansion_plan as _fit_expansion_plan_fn,
+)
+from argon.engine.formatter import (
+    generate_precision_context as _generate_precision_context_fn,
+)
+from argon.engine.formatter import (
+    get_domain_safeguards,
+)
+from argon.engine.formatter import (
+    precision_expansion_plan as _precision_expansion_plan_fn,
+)
+from argon.engine.formatter import (
+    precision_layers as _precision_layers_fn,
 )
 from argon.engine.formatter import (
     precision_symbol_block as _precision_symbol_block_fn,
-    precision_layers as _precision_layers_fn,
-    compact_precision_symbol as _compact_precision_symbol_fn,
-    precision_expansion_plan as _precision_expansion_plan_fn,
-    fit_expansion_plan as _fit_expansion_plan_fn,
-    build_precision_json_payload as _build_precision_json_payload_fn,
-    build_precision_compact as _build_precision_compact_fn,
-    get_domain_safeguards,
-    generate_precision_context as _generate_precision_context_fn,
 )
-from argon.utils.tokens import TokenCounter, estimate_tokens, resolve_precision_budget
-
-
-from argon.utils.tokens import PRECISION_BUDGET_PROFILES  # noqa: re-exported for backwards compat
-
-# Backward-compatible re-exports
-from argon.engine.builder import _pagerank  # noqa
+from argon.engine.hotspots import GitAnalyzer
+from argon.engine.keywords import extract_task_keywords
+from argon.engine.scorer import (
+    compute_idf as _compute_idf_fn,
+)
+from argon.engine.scorer import (
+    identifier_tokens as _identifier_tokens_fn,
+)
+from argon.engine.scorer import (
+    is_generic_type_symbol as _is_generic_type_symbol_fn,
+)
+from argon.engine.scorer import (
+    is_isolated_focus_match as _is_isolated_focus_match_fn,
+)
+from argon.engine.scorer import (
+    is_noise_symbol_for_task as _is_noise_symbol_for_task_fn,
+)
+from argon.engine.scorer import (
+    is_unrequested_test_symbol as _is_unrequested_test_symbol_fn,
+)
+from argon.engine.scorer import (
+    is_weak_file_only_match as _is_weak_file_only_match_fn,
+)
+from argon.engine.scorer import (
+    score_symbol_for_task as _score_symbol_for_task_fn,
+)
+from argon.engine.scorer import (
+    symbol_match_profile as _symbol_match_profile_fn,
+)
+from argon.engine.scorer import (
+    symbol_token_cost as _symbol_token_cost_fn,
+)
+from argon.engine.scorer import (
+    symbol_tokens as _symbol_tokens_fn,
+)
+from argon.engine.scorer import (
+    task_focus_tokens as _task_focus_tokens_fn,
+)
+from argon.engine.scorer import (
+    task_intents as _task_intents_fn,
+)
+from argon.engine.selector import (
+    context_tier as _context_tier_fn,
+)
+from argon.engine.selector import (
+    edge_maps as _edge_maps_fn,
+)
+from argon.engine.selector import (
+    neighbor_score as _neighbor_score_fn,
+)
+from argon.engine.selector import (
+    select_precision_symbols as _select_precision_symbols_fn,
+)
+from argon.engine.selector import (
+    support_symbol_factor as _support_symbol_factor_fn,
+)
+from argon.engine.snippets import (
+    read_contextual_snippet as _read_contextual_snippet_fn,
+)
+from argon.engine.snippets import (
+    read_symbol_snippet as _read_symbol_snippet_fn,
+)
+from argon.engine.snippets import (
+    truncate_snippet as _truncate_snippet_fn,
+)
+from argon.utils.tokens import (
+    PRECISION_BUDGET_PROFILES,  # noqa: re-exported for backwards compat
+    TokenCounter,
+    estimate_tokens,
+    resolve_precision_budget,
+)
 
 
 class ArgonEngine(BuilderMixin):
@@ -65,7 +119,7 @@ class ArgonEngine(BuilderMixin):
             f"Parser: {graph.get('parser_mode', 'regex')}",
             "", "---", "",
         ]
-        
+
         languages = {n.get('type') for n in graph.get('nodes', [])}
         rules = get_domain_safeguards(graph.get('project_domain', 'general'), languages)
         if rules:
@@ -273,7 +327,7 @@ class ArgonEngine(BuilderMixin):
         max_tokens_resolved, budget_settings = resolve_precision_budget(max_tokens, budget_profile)
         selected = self._select_precision_symbols(graph, task, max_tokens_resolved)
         selection_report = getattr(self, '_last_selection_report', {})
-        
+
         _generate_precision_context_fn(
             graph=graph,
             output_path=output_path,

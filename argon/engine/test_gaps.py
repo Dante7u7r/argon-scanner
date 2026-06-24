@@ -3,7 +3,7 @@
 from collections import defaultdict
 from typing import Any, Dict, List, Set
 
-from argon.engine.testmap import find_test_counterparts, find_source_counterpart
+from argon.engine.testmap import find_source_counterpart, find_test_counterparts
 
 
 def detect_testing_gaps(all_file_paths: List[str]) -> Dict[str, Any]:

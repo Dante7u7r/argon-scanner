@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 ARGON = ROOT / "argon" / "main.py"
 ARGON_MCP = ROOT / "argon_mcp.py"

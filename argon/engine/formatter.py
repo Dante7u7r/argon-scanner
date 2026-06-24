@@ -12,10 +12,10 @@ from argon.utils.tokens import TokenCounter, resolve_precision_budget
 
 def get_domain_safeguards(domain: str, languages: Set[str]) -> List[str]:
     rules = []
-    
+
     # 1. Universal Guardrails (Structural Thinking)
     rules.append("STRUCTURAL THINKING: Before outputting any code, you MUST generate a '<thinking>' block analyzing: (a) Structural constraints and helper function isolation, (b) Exact mathematical formulas, signs, and types, (c) Array indexing mappings and bounds.")
-    
+
     # 2. Scope Pinning
     if 'rs' in languages:
         rules.append("SCOPE PINNING (RUST): Do NOT rewrite entire files (especially large files like 'solver.rs'). Isolate changes by editing strictly within specified line ranges or writing standalone helper functions/closures.")
@@ -27,14 +27,14 @@ def get_domain_safeguards(domain: str, languages: Set[str]) -> List[str]:
         rules.append("TYPE SAFETY (RUST): Rust is extremely strict on type signatures (e.g., DVector, BTreeMap, HashMap, Complex). Explicitly map variable types and check memory borrowing/ownership rules before coding.")
 
     # 4. Domain-Specific (Circuit Simulation / Calculator / Scientific Computing)
-    is_simulation = (domain in ('scientific_computing', 'calculator') or 
+    is_simulation = (domain in ('scientific_computing', 'calculator') or
                      any(t in domain.lower() for t in ('sim', 'circuit', 'solver', 'math')))
-    
+
     if is_simulation:
         rules.append("NUMERICAL DAMPING (pnjlim): When evaluating candidate residues f(x_cand) during Newton-Raphson line searches, make sure to deactivate temporary limiting/damping (like pnjlim) in candidate states; otherwise, you will mask divergence and fail KCL convergence.")
         rules.append("MNA STAMPS CONSISTENCY: Ensure exact mathematical signs and physical dimensions. For Trapezoidal integration (TRAP) of inductors, conductance G_eq = h / (2 * L) and current source I_eq = i_L(t_n) + G_eq * v_L(t_n). Check dimensional units (Amperes) to avoid inversion errata.")
         rules.append("SPICE INDEXING CONVENTION: In SPICE/MNA matrices, Ground (Node 0) is reference and usually handled separately. Check if node solutions (0-indexed active nodes) map differently from full node voltage vectors (1-indexed, with 0 as Tierra).")
-    
+
     return rules
 
 
@@ -108,7 +108,7 @@ def precision_symbol_block(symbol: Dict[str, Any], output_format: str, root: str
             parts.append(f'    <relations>\n{rel_block}\n    </relations>')
         parts.append(f'    <sig>{xml_escape(symbol.get("signature", ""))}</sig>')
         parts.append(f'    <code><![CDATA[\n{snippet}\n]]></code>')
-        parts.append(f'  </sym>')
+        parts.append('  </sym>')
         return '\n'.join(parts)
     return (
         f"### {symbol['id']}\n"
@@ -533,7 +533,7 @@ def _generate_precision_xml_or_markdown(
             continue
         if output_format == 'xml':
             section_open = f'    <layer name="{tier}">\n'
-            section_close = f'    </layer>'
+            section_close = '    </layer>'
         else:
             section_open = f"\n## {tier.upper()}\n"
             section_close = ""

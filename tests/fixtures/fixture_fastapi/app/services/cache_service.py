@@ -1,5 +1,5 @@
-from typing import Any, Optional
 import json
+from typing import Any, Optional
 
 _cache = {}
 

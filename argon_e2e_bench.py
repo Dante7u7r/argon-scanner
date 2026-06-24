@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 ARGON END-TO-END BENCHMARK v1.0
 -------------------------------
@@ -19,13 +18,12 @@ from argon import ArgonEngine
 from argon_bench import score_graph
 from argon_quality_bench import (
     BENCHMARK_SPECS,
+    create_fixture_csharp,
+    create_fixture_java,
+    create_fixture_python,
     create_fixture_typescript,
     create_fixture_typescript_noisy,
-    create_fixture_python,
-    create_fixture_java,
-    create_fixture_csharp,
 )
-
 
 E2E_CASES = [
     {
@@ -313,7 +311,7 @@ def main() -> int:
 
     agg = report['aggregate']
     print(f"\n{'='*60}")
-    print(f"ARGON End-to-End Benchmark Results")
+    print("ARGON End-to-End Benchmark Results")
     print(f"{'='*60}")
     print(f"Cases: {report['cases_count']}")
     print(f"Quality Score: {agg['quality_score']:.3f} ({agg['grade']})")
@@ -321,7 +319,7 @@ def main() -> int:
     print(f"File Coverage: {agg['file_coverage']:.3f}")
     print(f"Token Efficiency: {agg['token_efficiency']:.3f}")
     print(f"Average Tokens Used: {agg['average_tokens_used']}")
-    print(f"\nPer-Case Results:")
+    print("\nPer-Case Results:")
     print(f"{'-'*60}")
     for case in report['cases']:
         print(f"  {case['case_id']}: Q={case['quality_score']:.3f} "

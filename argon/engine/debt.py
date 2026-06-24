@@ -4,7 +4,6 @@ import os
 import re
 from typing import Any, Dict, List
 
-
 _MARKER_PATTERN = re.compile(
     r'(?:^|\s)[#/;/*-]*\s*(TODO|FIXME|HACK|XXX|BUG|OPTIMIZE|TEMP|WORKAROUND|KLUDGE|HACKY|CLEANUP|REVISIT)[\s:)]*\s*(.*?)(?:\n|$|(?:--|//|#|;))',
     re.IGNORECASE,
@@ -21,7 +20,7 @@ def scan_file_for_debt(filepath: str, content: str = None) -> List[Dict[str, Any
     markers = []
     if content is None:
         try:
-            with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            with open(filepath, encoding='utf-8', errors='replace') as f:
                 content = f.read()
         except Exception:
             return markers

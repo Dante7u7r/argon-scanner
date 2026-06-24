@@ -1,6 +1,5 @@
 from typing import Any, Dict, Optional, Tuple
 
-
 PRECISION_BUDGET_PROFILES = {
     'custom': {'tokens': None, 'full_code_ratio': 0.72, 'expansion_items': 8},
     'micro': {'tokens': 1500, 'full_code_ratio': 0.62, 'expansion_items': 3},

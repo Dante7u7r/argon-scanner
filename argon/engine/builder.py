@@ -7,6 +7,10 @@ import threading
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from argon.engine.communities import detect_communities
+from argon.engine.debt import scan_file_for_debt, scan_project_for_debt
+from argon.engine.roles import classify_file_roles, role_score_boost
+from argon.engine.test_gaps import detect_testing_gaps
 from argon.models import ProjectNode, Symbol
 from argon.parser import UniversalParser
 from argon.parser.regex import _infer_symbol_end_line
@@ -14,10 +18,6 @@ from argon.resolvers.ignore import IgnoreMatcher
 from argon.resolvers.imports import ImportResolver, _is_probable_external_import
 from argon.utils.noise import STDLIB_NOISE
 from argon.utils.tokens import TokenCounter
-from argon.engine.roles import classify_file_roles, role_score_boost
-from argon.engine.communities import detect_communities
-from argon.engine.test_gaps import detect_testing_gaps
-from argon.engine.debt import scan_file_for_debt, scan_project_for_debt
 
 
 def _pagerank(node_ids: List[str], edges: List[Dict[str, str]], iterations: int = 40, damping: float = 0.85, convergence_threshold: float = 1e-6) -> Dict[str, float]:
@@ -35,14 +35,14 @@ def _pagerank(node_ids: List[str], edges: List[Dict[str, str]], iterations: int 
         if src in valid and dst in valid and src != dst:
             incoming[dst].append(src)
             outgoing_count[src] += 1
-            
+
     sinks = [i for i in ids if outgoing_count[i] == 0]
     inv_outgoing = {i: 1.0 / outgoing_count[i] for i in ids if outgoing_count[i] > 0}
     rank = {i: 1.0 / n for i in ids}
-    
+
     d_div_n = (1.0 - damping) / n
     damping_div_n = damping / n
-    
+
     for _ in range(iterations):
         sink = sum(rank[i] for i in sinks)
         const_term = d_div_n + damping_div_n * sink
@@ -139,7 +139,7 @@ class BuilderMixin:
 
     def _load_parse_cache(self) -> Dict[str, Any]:
         try:
-            with open(self._cache_path(), 'r', encoding='utf-8') as f:
+            with open(self._cache_path(), encoding='utf-8') as f:
                 data = json.load(f)
             return data.get('files', {}) if data.get('version') == 1 else {}
         except Exception:

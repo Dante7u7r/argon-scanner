@@ -2,11 +2,11 @@ import os
 from typing import Dict, List, Optional, Set
 
 from argon.models import ProjectNode
-from argon.resolvers.tsconfig import TsConfigResolver
 from argon.resolvers.composer import ComposerResolver
+from argon.resolvers.csharp import CSharpResolver
 from argon.resolvers.go import GoResolver
 from argon.resolvers.java import JavaResolver
-from argon.resolvers.csharp import CSharpResolver
+from argon.resolvers.tsconfig import TsConfigResolver
 
 
 def _is_probable_external_import(specifier: str) -> bool:

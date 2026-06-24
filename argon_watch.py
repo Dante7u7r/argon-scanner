@@ -3,8 +3,8 @@
 ARGON WATCH v9.0 -- MASTER SENTINEL (watchdog-based)
 Delegates to argon.watcher.
 """
-import sys
 import os
+import sys
 
 if __name__ == '__main__':
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -61,7 +61,7 @@ class MonorepoDetector:
         if not os.path.exists(pkg_json_path):
             return []
         try:
-            with open(pkg_json_path, 'r', encoding='utf-8') as f:
+            with open(pkg_json_path, encoding='utf-8') as f:
                 config = json.load(f)
             workspaces = config.get('workspaces', [])
             if not workspaces:
@@ -106,7 +106,7 @@ class MonorepoDetector:
         if not os.path.exists(cargo_path):
             return []
         try:
-            with open(cargo_path, 'r', encoding='utf-8') as f:
+            with open(cargo_path, encoding='utf-8') as f:
                 content = f.read()
             in_workspace = False
             members = []
@@ -203,7 +203,7 @@ class MonorepoAnalyzer:
                     if f.endswith(('.ts', '.tsx', '.js', '.jsx', '.py', '.rs')):
                         fpath = os.path.join(dirpath, f)
                         try:
-                            with open(fpath, 'r', encoding='utf-8', errors='ignore') as fh:
+                            with open(fpath, encoding='utf-8', errors='ignore') as fh:
                                 content = fh.read(10000)
                             for other_pkg in packages:
                                 if other_pkg['path'] == pkg_path:

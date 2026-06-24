@@ -1,14 +1,14 @@
+import json
 import os
 import sys
-import json
-import time
 import threading
+import time
 from typing import Dict, List, Optional, Set
 
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
 
-from argon.engine.graph import ArgonEngine, PRECISION_BUDGET_PROFILES
+from argon.engine.graph import PRECISION_BUDGET_PROFILES, ArgonEngine
 
 try:
     from argon_view import ArgonVisualizer
@@ -103,7 +103,7 @@ class ArgonSentinel:
         if changed_files:
             print(f"[*] Cambio detectado ({len(changed_files)} archivos). Reconstruyendo incremental...")
         else:
-            print(f"[*] Escaneo inicial. Reconstruyendo...")
+            print("[*] Escaneo inicial. Reconstruyendo...")
         try:
             graph = self.engine.build_graph(changed_files=changed_files)
         except Exception as e:
@@ -181,7 +181,7 @@ class ArgonSentinel:
 
     def _write_delta(self, delta: dict) -> None:
         lines = [
-            f"# ARGON DELTA REPORT",
+            "# ARGON DELTA REPORT",
             f"Files: {delta['total_files']} | +{delta['added']}/-{delta['removed']}/~{delta['changed']}",
             f"Affected dependents: {delta['affected']}",
             "",
@@ -224,7 +224,7 @@ class ArgonSentinel:
         observer.schedule(self.handler, self.root, recursive=True)
         observer.daemon = True
         observer.start()
-        print(f"[*] Watchdog activo. Esperando cambios...")
+        print("[*] Watchdog activo. Esperando cambios...")
 
         try:
             while observer.is_alive():

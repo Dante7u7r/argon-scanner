@@ -7,13 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from argon.engine.task_decomposer import TaskDecomposer
-from argon.engine.domain_ml import DomainDetector, DOMAIN_PROTOTYPES
+from argon.ci import CIBaseline, CIDiffer, CIQualityGates, CIReporter
+from argon.engine.domain_ml import DOMAIN_PROTOTYPES, DomainDetector
+from argon.engine.keywords import extract_task_keywords
 from argon.engine.monorepo import MonorepoDetector
 from argon.engine.selector import select_precision_symbols
-from argon.engine.keywords import extract_task_keywords
-from argon.ci import CIBaseline, CIDiffer, CIQualityGates, CIReporter
-
+from argon.engine.task_decomposer import TaskDecomposer
 
 # ===================== Task Decomposition =====================
 
@@ -294,21 +293,18 @@ def test_import_resolver_supports_new_languages():
 # ===================== Keyword Extraction =====================
 
 def test_keyword_extraction_basic():
-    from argon.engine.keywords import extract_task_keywords
     keywords = extract_task_keywords("fix authentication bug")
     assert 'authentication' in keywords or 'auth' in keywords
     assert 'bug' in keywords
 
 
 def test_keyword_extraction_synonyms():
-    from argon.engine.keywords import extract_task_keywords
     keywords = extract_task_keywords("fix login issue")
     assert 'login' in keywords
     assert 'auth' in keywords or 'authenticate' in keywords
 
 
 def test_keyword_extraction_empty():
-    from argon.engine.keywords import extract_task_keywords
     keywords = extract_task_keywords("")
     assert keywords == []
 
@@ -328,7 +324,12 @@ def test_detect_project_domain_keywords_import():
 # ===================== Domain-Aware AI Safeguards & Guardrails =====================
 
 def test_domain_aware_safeguards_generation():
-    from argon.engine.formatter import get_domain_safeguards, build_precision_json_payload, build_precision_compact, generate_precision_context
+    from argon.engine.formatter import (
+        build_precision_compact,
+        build_precision_json_payload,
+        generate_precision_context,
+        get_domain_safeguards,
+    )
     from argon.engine.graph import ArgonEngine
     from argon.utils.tokens import TokenCounter
 
@@ -364,7 +365,7 @@ def test_domain_aware_safeguards_generation():
         },
         "preferred_file": "solver.rs",
     }
-    
+
     counter = TokenCounter(model='gpt-4.1', strict=False)
 
     # 2. Test JSON builder
@@ -403,7 +404,7 @@ def test_domain_aware_safeguards_generation():
             counter=counter,
         )
         assert os.path.exists(xml_path)
-        with open(xml_path, 'r', encoding='utf-8') as f:
+        with open(xml_path, encoding='utf-8') as f:
             xml_content = f.read()
         assert "<safeguards>" in xml_content
         assert "<rule>" in xml_content
@@ -419,7 +420,7 @@ def test_domain_aware_safeguards_generation():
             counter=counter,
         )
         assert os.path.exists(md_path)
-        with open(md_path, 'r', encoding='utf-8') as f:
+        with open(md_path, encoding='utf-8') as f:
             md_content = f.read()
         assert "## AI CODING SAFEGUARDS" in md_content
         assert "pnjlim" in md_content
@@ -434,7 +435,7 @@ def test_domain_aware_safeguards_generation():
             max_tokens=2048,
             output_format="xml",
         )
-        with open(xml_path2, 'r', encoding='utf-8') as f:
+        with open(xml_path2, encoding='utf-8') as f:
             xml_content2 = f.read()
         assert "<safeguards>" in xml_content2
         assert "pnjlim" in xml_content2
@@ -448,7 +449,7 @@ def test_domain_aware_safeguards_generation():
             max_tokens=2048,
             output_format="markdown",
         )
-        with open(md_path2, 'r', encoding='utf-8') as f:
+        with open(md_path2, encoding='utf-8') as f:
             md_content2 = f.read()
         assert "## AI CODING SAFEGUARDS" in md_content2
         assert "pnjlim" in md_content2
@@ -459,7 +460,7 @@ def test_domain_aware_safeguards_generation():
         engine = ArgonEngine(tmp_dir, precision=True)
         engine.generate_context_report(graph, report_path)
         assert os.path.exists(report_path)
-        with open(report_path, 'r', encoding='utf-8') as f:
+        with open(report_path, encoding='utf-8') as f:
             report_content = f.read()
         assert "## AI CODING SAFEGUARDS" in report_content
         assert "pnjlim" in report_content
@@ -469,7 +470,7 @@ def test_domain_aware_safeguards_generation():
 
 def test_dynamic_slicing_large_function():
     from argon.engine.snippets import slice_symbol_body
-    
+
     # 1. Test short function is not sliced
     short_code = [
         "fn add(a: i32, b: i32) -> i32 {",
@@ -477,7 +478,7 @@ def test_dynamic_slicing_large_function():
         "}"
     ]
     assert slice_symbol_body(short_code, [], "rs") == "\n".join(short_code)
-    
+
     # 2. Test large function gets sliced and collapsed
     large_code = [
         "fn large_solver_helper(x: &mut DVector<f64>) -> Result<(), String> {",
@@ -513,13 +514,13 @@ def test_dynamic_slicing_large_function():
         "}"
     ]
     sliced = slice_symbol_body(large_code, ["jacobian"], "rs")
-    
+
     assert "fn large_solver_helper" in sliced
     assert "if steps > 100 {" in sliced
     assert "execute_jacobian_update(x);" in sliced
     assert "Ok(())" in sliced
     assert "// ... [omitted" in sliced
-    
+
     sliced_py = slice_symbol_body(large_code, ["jacobian"], "py")
     assert "# ... [omitted" in sliced_py
 
@@ -527,25 +528,25 @@ def test_dynamic_slicing_large_function():
 # ===================== Architectural Overhaul Improvements =====================
 
 def test_architectural_overhaul_improvements():
-    from argon.parser.tree_sitter import TreeSitterAdapter
     from argon.engine.builder import _pagerank
+    from argon.parser.tree_sitter import TreeSitterAdapter
     from argon.utils.tokens import TokenCounter
-    
+
     # 1. Test TreeSitterAdapter
     class FakeNode:
         def __init__(self, text):
             self.text = text
-            
+
     assert TreeSitterAdapter.decode_text(FakeNode(b"hello")) == "hello"
     assert TreeSitterAdapter.decode_text(FakeNode("world")) == "world"
-    
+
     class FakeTree:
         def __init__(self, root_callable=False):
             if root_callable:
                 self.root_node = lambda: "root_val"
             else:
                 self.root_node = "root_val"
-                
+
     assert TreeSitterAdapter.get_root(FakeTree(root_callable=True)) == "root_val"
     assert TreeSitterAdapter.get_root(FakeTree(root_callable=False)) == "root_val"
 
@@ -556,16 +557,16 @@ def test_architectural_overhaul_improvements():
     assert len(ranks) == 3
     assert ranks["C"] == 1.0
     assert ranks["A"] < ranks["B"]
-    
+
     # 3. Test Multimodel TokenCounter
     gpt_counter = TokenCounter(model="gpt-4", strict=False)
     assert gpt_counter.is_gemini is False
     assert gpt_counter.is_claude is False
-    
+
     gemini_counter = TokenCounter(model="gemini-1.5-pro", strict=False)
     assert gemini_counter.is_gemini is True
     assert gemini_counter.count("hello world") == 2
-    
+
     claude_counter = TokenCounter(model="claude-3-5-sonnet", strict=False)
     assert claude_counter.is_claude is True
     assert claude_counter.count("hello world") >= 2
@@ -574,8 +575,7 @@ def test_architectural_overhaul_improvements():
 # ===================== Type-Aware Context Expansion =====================
 
 def test_type_aware_context_expansion():
-    from argon.engine.selector import select_precision_symbols
-    
+
     graph = {
         "root": "test-repo",
         "project_domain": "general",
@@ -614,20 +614,20 @@ def test_type_aware_context_expansion():
             }
         ]
     }
-    
+
     selected, report = select_precision_symbols(
         graph=graph,
         task="solve dc",
         max_tokens=0,
     )
-    
+
     selected_ids = {s["id"] for s in selected}
     assert "main.rs::solve_dc" in selected_ids
     assert "types.rs::NewtonState" in selected_ids
-    
+
     newton_state_sym = next(s for s in selected if s["id"] == "types.rs::NewtonState")
     assert "type_dependency" in newton_state_sym.get("selection_reasons", [])
-    
+
     selected_budget, report_budget = select_precision_symbols(
         graph=graph,
         task="solve dc",

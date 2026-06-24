@@ -2,6 +2,7 @@ import pytest
 from app.models.order import Order, OrderItem, OrderStatus
 from app.services.order_service import apply_discount_code, get_order_statistics
 
+
 def test_order_calculate_total():
     order = Order()
     order.items = [
