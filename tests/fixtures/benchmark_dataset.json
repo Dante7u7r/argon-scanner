@@ -509,6 +509,61 @@
       "must_not_include": ["calculate_total", "process_payment", "cache_invalidate"],
       "expected_tier": {"critical": ["authenticate", "validate_token"], "workflow": ["hash_password"]},
       "category": "security"
+    },
+    {
+      "id": "tauri-store-007",
+      "fixture": "fixture_tauri",
+      "task": "fix login flow in frontend auth store calling backend",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["login", "verifyToken", "authenticate", "User"],
+      "must_not_include": ["calculate_total", "process_payment", "cache_invalidate"],
+      "expected_tier": {"critical": ["login", "verifyToken", "authenticate"], "workflow": ["User"]},
+      "category": "bugfix"
+    },
+    {
+      "id": "tauri-store-008",
+      "fixture": "fixture_tauri",
+      "task": "implement order cancellation from frontend store to backend",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["cancel", "cancel_order", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "validate_token"],
+      "expected_tier": {"critical": ["cancel", "cancel_order"], "workflow": ["Order"]},
+      "category": "feature"
+    },
+    {
+      "id": "tauri-store-009",
+      "fixture": "fixture_tauri",
+      "task": "add payment processing from frontend order store",
+      "budget": 4000,
+      "top_n": 10,
+      "must_include": ["processPayment", "process_payment", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "validate_token"],
+      "expected_tier": {"critical": ["processPayment", "process_payment"], "workflow": ["Order"]},
+      "category": "feature"
+    },
+    {
+      "id": "tauri-model-010",
+      "fixture": "fixture_tauri",
+      "task": "add total calculation to order model with tax",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["calculate_total", "total", "Order"],
+      "must_not_include": ["authenticate", "hash_password", "validate_token", "cache_invalidate"],
+      "expected_tier": {"critical": ["calculate_total", "total"], "workflow": ["Order"]},
+      "category": "refactor"
+    },
+    {
+      "id": "tauri-component-011",
+      "fixture": "fixture_tauri",
+      "task": "fix login form validation and error handling",
+      "budget": 3000,
+      "top_n": 8,
+      "must_include": ["LoginForm", "login", "authenticate"],
+      "must_not_include": ["calculate_total", "process_payment", "Order"],
+      "expected_tier": {"critical": ["LoginForm", "login"], "workflow": ["authenticate"]},
+      "category": "bugfix"
     }
   ]
 }
