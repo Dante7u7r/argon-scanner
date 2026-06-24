@@ -10,4 +10,3 @@ ARGON_PRECISION.*
 argon_graph.json
 argon_view.html
 *.egg-info/
-.github/workflows/
