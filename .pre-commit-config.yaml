@@ -1,0 +1,31 @@
+# argon-scanner pre-commit hooks
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      - id: argon-scan
+        name: ARGON Semantic Scan
+        entry: bash scripts/pre-commit-hook.sh
+        language: system
+        types: [python, javascript, typescript, java, csharp, go, rust, cpp, c, ruby, php, swift, kotlin, scala, lua, r, elixir, bash, html, css, sql, toml, yaml, json, markdown]
+        args: []
+        verbose: true
+        # Advisory only - doesn't block commits
+        # To make it blocking, remove 'always_run: true' and add 'fail_fast: true'
+        # But keep advisory for now to avoid false positives
+
+  # Optional: basic file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: debug-logger
+      - id: requirements-txt-fixer
+      - id: detect-private-key

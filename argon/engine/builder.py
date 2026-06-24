@@ -1,5 +1,6 @@
 import concurrent.futures
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,14 @@ from argon.resolvers.ignore import IgnoreMatcher
 from argon.resolvers.imports import ImportResolver, _is_probable_external_import
 from argon.utils.noise import STDLIB_NOISE
 from argon.utils.tokens import TokenCounter
+
+
+def _file_hash(fpath: str) -> str:
+    h = hashlib.sha256()
+    with open(fpath, 'rb') as f:
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _pagerank(node_ids: List[str], edges: List[Dict[str, str]], iterations: int = 40, damping: float = 0.85, convergence_threshold: float = 1e-6) -> Dict[str, float]:
@@ -141,14 +150,14 @@ class BuilderMixin:
         try:
             with open(self._cache_path(), encoding='utf-8') as f:
                 data = json.load(f)
-            return data.get('files', {}) if data.get('version') == 1 else {}
+            return data.get('files', {}) if data.get('version') == 2 else {}
         except Exception:
             return {}
 
     def _save_parse_cache(self, cache: Dict[str, Any]) -> None:
         try:
             with open(self._cache_path(), 'w', encoding='utf-8') as f:
-                json.dump({'version': 1, 'files': cache}, f, ensure_ascii=False)
+                json.dump({'version': 2, 'files': cache}, f, ensure_ascii=False)
         except Exception:
             return
 
@@ -202,8 +211,9 @@ class BuilderMixin:
 
     def _parse_one(self, fpath: str, rel: str, parse_cache: dict) -> Tuple[ProjectNode, str, os.stat_result, bool]:
         stat = os.stat(fpath)
+        file_hash = _file_hash(fpath)
         cached = parse_cache.get(rel)
-        if cached and cached.get('mtime') == stat.st_mtime and cached.get('size') == stat.st_size:
+        if cached and cached.get('hash') == file_hash:
             return self._node_from_cache(cached['node']), rel, stat, True
         return self.parser.parse(fpath), rel, stat, False
 
@@ -226,7 +236,8 @@ class BuilderMixin:
                     st = os.stat(fpath)
                 except OSError:
                     continue
-                if entry.get('mtime') == st.st_mtime and entry.get('size') == st.st_size:
+                file_hash = _file_hash(fpath)
+                if entry.get('hash') == file_hash:
                     node = self._node_from_cache(entry['node'])
                     nodes.append(node)
                     next_cache[rel] = entry
@@ -265,7 +276,8 @@ class BuilderMixin:
                 except OSError:
                     continue
                 nodes.append(node)
-                next_cache[rel] = {'mtime': stat.st_mtime, 'size': stat.st_size, 'node': node.to_dict()}
+                file_hash = _file_hash(fpath)
+                next_cache[rel] = {'hash': file_hash, 'node': node.to_dict()}
                 if cache_hit:
                     cache_hits += 1
         else:
@@ -280,7 +292,8 @@ class BuilderMixin:
                         continue
                     with lock:
                         nodes.append(node)
-                        next_cache[rel] = {'mtime': stat.st_mtime, 'size': stat.st_size, 'node': node.to_dict()}
+                        file_hash = _file_hash(fpath)
+                        next_cache[rel] = {'hash': file_hash, 'node': node.to_dict()}
                         if cache_hit:
                             cache_hits += 1
 
