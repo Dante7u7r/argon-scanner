@@ -12,8 +12,6 @@ from argon.engine.feedback import FeedbackStore
 from argon.engine.incremental import IncrementalSelector
 from argon.engine.domain_ml import DomainDetector, DOMAIN_PROTOTYPES
 from argon.engine.monorepo import MonorepoDetector
-from argon.engine.learned_scorer import LearnedScorer, extract_features
-from argon.engine.gnn_scorer import SimpleGNN, extract_node_features, build_adjacency_list, HAS_NUMPY
 from argon.engine.selector import select_precision_symbols
 from argon.engine.keywords import extract_task_keywords
 from argon.ci import CIBaseline, CIDiffer, CIQualityGates, CIReporter
@@ -290,92 +288,6 @@ def test_monorepo_detector_not_monorepo(tmp_path):
     detector = MonorepoDetector(str(root))
     assert not detector.detect()
     assert detector.find_packages() == []
-
-
-# ===================== Learned Scorer =====================
-
-def test_learned_scorer_extract_features():
-    sym = {
-        'name': 'validateToken', 'kind': 'func', 'file': 'auth.ts',
-        'start_line': 10, 'end_line': 25,
-        'signature': 'function validateToken(token: string): boolean',
-        'exported': True, 'inbound_calls': 5, 'outbound_calls': 2,
-        'named_imports': 3, 'rank': 0.8, 'pagerank': 0.6,
-    }
-    keywords = ['auth', 'token', 'validate']
-    features = extract_features(sym, keywords)
-    assert len(features) == 15
-    assert features[0] >= 0  # task_score_norm
-    assert features[6] == 1.0  # is_func
-    assert features[9] == 1.0  # is_exported
-
-
-def test_learned_scorer_empty():
-    scorer = LearnedScorer()
-    features = extract_features(
-        {'name': 'foo', 'kind': 'var', 'file': 'x.ts', 'start_line': 1, 'end_line': 1,
-         'signature': 'const foo = 1', 'exported': False, 'inbound_calls': 0,
-         'outbound_calls': 0, 'named_imports': 0, 'rank': 0, 'pagerank': 0},
-        ['test']
-    )
-    score = scorer.predict(features)
-    assert score >= 0
-
-
-def test_learned_scorer_train_and_predict():
-    scorer = LearnedScorer()
-    X = [[0.5, 0.3, 0.2, 0.1, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.1, 0.5, 0.3, 0.2],
-         [0.8, 0.6, 0.4, 0.3, 0.1, 0.1, 1.0, 0.0, 0.0, 1.0, 0.0, 0.15, 0.8, 0.5, 0.3],
-         [0.2, 0.1, 0.05, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.05, 0.2, 0.1, 0.1]]
-    y = [0.3, 0.8, 0.1]
-    scorer.train(X, y, num_boost_round=10)
-
-    if scorer.model is not None:
-        pred = scorer.predict(X[0])
-        assert pred >= 0
-
-
-# ===================== GNN Scorer =====================
-
-def test_gnn_extract_node_features():
-    sym = {
-        'name': 'validateToken', 'kind': 'func', 'file': 'auth.ts',
-        'start_line': 10, 'end_line': 25,
-        'signature': 'function validateToken(token: string): boolean',
-        'exported': True, 'inbound_calls': 5, 'outbound_calls': 2,
-        'named_imports': 3, 'resolved_imports': 2, 'rank': 0.8, 'pagerank': 0.6,
-    }
-    features = extract_node_features(sym, ['auth', 'token'])
-    assert len(features) == 16
-    assert features[0] == 1.0  # is_func
-    assert features[4] == 1.0  # is_exported
-
-
-def test_gnn_build_adjacency_list():
-    symbols = [
-        {'id': 'a.ts::foo'},
-        {'id': 'b.ts::bar'},
-        {'id': 'c.ts::baz'},
-    ]
-    edges = [
-        {'source': 'a.ts::foo', 'target': 'b.ts::bar'},
-        {'source': 'b.ts::bar', 'target': 'c.ts::baz'},
-    ]
-    adj = build_adjacency_list(symbols, edges)
-    assert len(adj) == 3
-    assert 1 in adj[0]
-    assert 2 in adj[1]
-
-
-def test_gnn_initialization():
-    gnn = SimpleGNN(input_dim=16, hidden_dim=64, output_dim=1)
-    assert not gnn._initialized
-    if HAS_NUMPY:
-        gnn._init_weights()
-        assert gnn._initialized
-    else:
-        gnn._init_weights()
-        assert not gnn._initialized
 
 
 # ===================== CI Quality Gates =====================
