@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """
-ARGON Benchmark Optimizer
-=========================
-Uses coordinate descent to optimize scoring weights against the benchmark dataset.
+ARGON Benchmark Gate
+====================
+Runs the 33-case benchmark dataset against the production scorer and gates
+on recall: hard floor + anti-regression vs a pinned baseline. Use --gate-init
+to (re)write the baseline after intentional dataset or scoring changes.
 """
 
 import json
 import os
 import sys
-import math
-import copy
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from argon.engine.graph import ArgonEngine, _pagerank
+from argon.engine.graph import ArgonEngine
 
 
 # =========================================================================
@@ -28,14 +28,6 @@ def load_benchmark_dataset(path: str = None) -> Dict[str, Any]:
         path = os.path.join(ROOT, "tests", "fixtures", "benchmark_dataset.json")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
-def load_existing_benchmarks() -> Dict[str, Any]:
-    path = os.path.join(ROOT, "tests", "fixtures", "benchmark_results.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
 
 
 # =========================================================================
@@ -122,105 +114,6 @@ def run_benchmark_case(
         "selected_count": len(selected),
         "top_ids": top_ids[:top_n],
     }
-
-
-# =========================================================================
-# WEIGHT OPTIMIZATION (Coordinate Descent)
-# =========================================================================
-
-DEFAULT_WEIGHTS = {
-    "name_weight": 5.0,
-    "file_weight": 1.6,
-    "signature_weight": 1.5,
-    "overlap_weight": 0.6,
-    "focus_bonus": 1.2,
-    "keyword_name_bonus": 1.5,
-    "keyword_file_bonus": 0.45,
-    "task_ratio": 0.55,
-    "call_ratio": 0.25,
-    "graph_ratio": 0.20,
-    "import_neighbor_factor": 0.35,
-    "callee_factor": 0.65,
-    "caller_factor": 0.70,
-    "generic_penalty": 0.45,
-    "support_factor_tests": 0.55,
-    "support_factor_model": 0.25,
-    "support_factor_no_focus": 0.58,
-    "pagerank_precision_weight": 0.7,
-    "connections_precision_weight": 0.2,
-    "symbols_precision_weight": 0.1,
-}
-
-
-def apply_weights_to_engine(engine: ArgonEngine, weights: Dict[str, float]) -> None:
-    engine._weights = weights
-
-
-def objective_function(
-    engine: ArgonEngine,
-    fixture_graphs: Dict[str, Dict],
-    dataset: Dict[str, Any],
-    weights: Dict[str, float],
-) -> float:
-    apply_weights_to_engine(engine, weights)
-    total_score = 0.0
-    total_cases = 0
-
-    for case in dataset["cases"]:
-        fixture = case["fixture"]
-        if fixture not in fixture_graphs:
-            continue
-        graph = fixture_graphs[fixture]
-        result = run_benchmark_case(engine, graph, case)
-        total_score += result["score"]
-        total_cases += 1
-
-    return total_score / max(1, total_cases)
-
-
-def coordinate_descent(
-    engine: ArgonEngine,
-    fixture_graphs: Dict[str, Dict],
-    dataset: Dict[str, Any],
-    initial_weights: Dict[str, float] = None,
-    max_iterations: int = 50,
-    learning_rate: float = 0.1,
-    patience: int = 10,
-) -> Tuple[Dict[str, float], List[float]]:
-    weights = dict(initial_weights or DEFAULT_WEIGHTS)
-    best_score = objective_function(engine, fixture_graphs, dataset, weights)
-    best_weights = dict(weights)
-    history = [best_score]
-    no_improve_count = 0
-
-    print(f"[*] Initial score: {best_score:.4f}")
-
-    for iteration in range(max_iterations):
-        improved = False
-        for key in weights:
-            for delta in [learning_rate, -learning_rate]:
-                new_weights = dict(weights)
-                new_weights[key] = max(0.01, weights[key] + delta)
-                new_score = objective_function(engine, fixture_graphs, dataset, new_weights)
-                if new_score > best_score:
-                    best_score = new_score
-                    best_weights = dict(new_weights)
-                    weights = dict(new_weights)
-                    improved = True
-                    no_improve_count = 0
-                    break
-            if not improved:
-                no_improve_count += 1
-
-        history.append(best_score)
-        if iteration % 5 == 0:
-            print(f"  [{iteration:3d}] score: {best_score:.4f}")
-
-        if no_improve_count >= patience * len(weights):
-            print(f"  Converged at iteration {iteration}")
-            break
-
-    return best_weights, history
 
 
 # =========================================================================
@@ -420,22 +313,19 @@ def build_fixture_graphs(dataset: Dict[str, Any]) -> Dict[str, Dict]:
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="ARGON Benchmark Optimizer")
+    parser = argparse.ArgumentParser(description="ARGON Benchmark Gate — recall anti-regression on the 33-case dataset")
     mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--gate", action="store_true", help="Run recall gate against baseline (no optimization). Exit 1 on regression.")
+    mode.add_argument("--gate", action="store_true", default=True, help="Run recall gate against baseline (default mode). Exit 1 on regression.")
     mode.add_argument("--gate-init", action="store_true", help="Run all cases and save recall baseline. Use after intentional dataset/scoring changes.")
     parser.add_argument("--baseline", type=str, default=None, help=f"Baseline path (default: tests/fixtures/{DEFAULT_BASELINE_NAME})")
     parser.add_argument("--min-recall", type=float, default=0.80, help="Hard floor for aggregate recall (default: 0.80)")
     parser.add_argument("--max-regression", type=float, default=0.03, help="Max allowed aggregate recall drop vs baseline (default: 0.03)")
     parser.add_argument("--max-fixture-regression", type=float, default=0.10, help="Fixture recall drop that triggers a warning (default: 0.10)")
-    parser.add_argument("--iterations", type=int, default=50, help="Max iterations (optimize mode)")
-    parser.add_argument("--lr", type=float, default=0.1, help="Learning rate (optimize mode)")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset path")
-    parser.add_argument("--output", type=str, default="optimized_weights.json")
     args = parser.parse_args()
 
     print("=" * 60)
-    print("ARGON Benchmark Optimizer" + (" — GATE" if args.gate else (" — GATE-INIT" if args.gate_init else "")))
+    print("ARGON Benchmark Gate" + (" — INIT" if args.gate_init else ""))
     print("=" * 60)
 
     dataset = load_benchmark_dataset(args.dataset)
@@ -444,66 +334,22 @@ def main():
     fixture_graphs = build_fixture_graphs(dataset)
     engine = ArgonEngine(".", precision=True, model="gpt-4.1")
 
-    # ---- Gate modes (no optimization, measure production weights) ----
+    # ---- gate-init: save baseline ----
     if args.gate_init:
         save_baseline(engine, fixture_graphs, dataset, path=args.baseline)
         return 0
-    if args.gate:
-        passed, report = run_gate(
-            engine, fixture_graphs, dataset,
-            baseline_path=args.baseline,
-            min_recall=args.min_recall,
-            max_regression=args.max_regression,
-            max_fixture_regression=args.max_fixture_regression,
-        )
-        _print_gate_report(report)
-        return 0 if passed else 1
 
-    # ---- Default: optimization mode (existing behavior) ----
-    print("\n[*] Running optimization...")
-    optimized_weights, history = coordinate_descent(
+    # ---- gate (default): anti-regression check ----
+    passed, report = run_gate(
         engine, fixture_graphs, dataset,
-        max_iterations=args.iterations,
-        learning_rate=args.lr,
+        baseline_path=args.baseline,
+        min_recall=args.min_recall,
+        max_regression=args.max_regression,
+        max_fixture_regression=args.max_fixture_regression,
     )
-
-    print(f"\n{'=' * 60}")
-    print("RESULTS")
-    print(f"{'=' * 60}")
-    print(f"Initial score: {history[0]:.4f}")
-    print(f"Final score:   {history[-1]:.4f}")
-    print(f"Improvement:   {history[-1] - history[0]:.4f}")
-
-    print(f"\nOptimized weights:")
-    for key, value in sorted(optimized_weights.items()):
-        default = DEFAULT_WEIGHTS.get(key, 0)
-        delta = value - default
-        if abs(delta) > 0.01:
-            print(f"  {key}: {default:.3f} -> {value:.3f} ({delta:+.3f})")
-        else:
-            print(f"  {key}: {value:.3f}")
-
-    output_path = os.path.join(ROOT, args.output)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "weights": optimized_weights,
-            "history": history,
-            "initial_score": history[0],
-            "final_score": history[-1],
-        }, f, indent=2, ensure_ascii=False)
-    print(f"\n[+] Weights saved to {output_path}")
-
-    print("\n[*] Running final benchmark with optimized weights...")
-    apply_weights_to_engine(engine, optimized_weights)
-    for case in dataset["cases"]:
-        fixture = case["fixture"]
-        if fixture not in fixture_graphs:
-            continue
-        graph = fixture_graphs[fixture]
-        result = run_benchmark_case(engine, graph, case)
-        status = "OK" if result["score"] >= 0.8 else "WARN"
-        print(f"  [{status}] {result['case_id']}: {result['score']:.3f} (recall={result['recall']:.2f}, prec={result['precision']:.2f})")
+    _print_gate_report(report)
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

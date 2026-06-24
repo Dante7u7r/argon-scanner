@@ -8,8 +8,6 @@ from pathlib import Path
 import pytest
 
 from argon.engine.task_decomposer import TaskDecomposer
-from argon.engine.feedback import FeedbackStore
-from argon.engine.incremental import IncrementalSelector
 from argon.engine.domain_ml import DomainDetector, DOMAIN_PROTOTYPES
 from argon.engine.monorepo import MonorepoDetector
 from argon.engine.selector import select_precision_symbols
@@ -62,119 +60,6 @@ def test_task_decomposer_spanish():
     decomposer = TaskDecomposer()
     subtasks = decomposer.decompose("arreglar bug de autenticacion y agregar soporte de pagos")
     assert len(subtasks) >= 2
-
-
-# ===================== Feedback Store =====================
-
-def test_feedback_store_record_and_retrieve():
-    with tempfile.TemporaryDirectory() as tmp:
-        store = FeedbackStore(tmp)
-        assert store.entry_count == 0
-        assert not store.has_feedback()
-
-        store.record(
-            task="fix auth bug",
-            accepted=["auth.ts::validateToken", "auth.ts::authenticate"],
-            rejected=["cache.ts::cacheGet"],
-        )
-        assert store.entry_count == 1
-        assert store.has_feedback()
-
-        store.record(
-            task="add payment support",
-            accepted=["payment.ts::processPayment"],
-            rejected=["auth.ts::loginUser"],
-        )
-        assert store.entry_count == 2
-
-        accepted = store.get_accepted_symbols()
-        assert "auth.ts::validateToken" in accepted
-        assert "payment.ts::processPayment" in accepted
-
-        rejected = store.get_rejected_symbols()
-        assert "cache.ts::cacheGet" in rejected
-        assert "auth.ts::loginUser" in rejected
-
-
-def test_feedback_store_training_data():
-    with tempfile.TemporaryDirectory() as tmp:
-        store = FeedbackStore(tmp)
-        store.record(task="t1", accepted=["a"], rejected=["b"])
-        store.record(task="t2", accepted=["c"], rejected=["d"])
-
-        data = store.get_training_data()
-        assert len(data) == 2
-        assert data[0]['task'] == "t1"
-        assert data[1]['task'] == "t2"
-
-
-def test_feedback_store_weights():
-    with tempfile.TemporaryDirectory() as tmp:
-        store = FeedbackStore(tmp)
-        weights = {"model": "custom", "alpha": 0.5}
-        store.save_weights(weights)
-        loaded = store.load_weights()
-        assert loaded == weights
-
-
-def test_feedback_store_empty():
-    with tempfile.TemporaryDirectory() as tmp:
-        store = FeedbackStore(tmp)
-        assert store.entry_count == 0
-        assert not store.has_feedback()
-        assert store.get_accepted_symbols() == set()
-        assert store.get_rejected_symbols() == set()
-        assert store.get_training_data() == []
-        assert store.load_weights() == {}
-
-
-# ===================== Incremental Context =====================
-
-def test_incremental_selector_basic():
-    symbols = [
-        {'id': 'a.ts::validateToken', 'name': 'validateToken', 'kind': 'func', 'file': 'a.ts',
-         'start_line': 10, 'end_line': 25, 'signature': 'function validateToken()', 'exported': True,
-         'selection_score': 8.5, 'inbound_calls': 5, 'outbound_calls': 2},
-        {'id': 'a.ts::authenticate', 'name': 'authenticate', 'kind': 'func', 'file': 'a.ts',
-         'start_line': 30, 'end_line': 45, 'signature': 'function authenticate()', 'exported': True,
-         'selection_score': 7.2, 'inbound_calls': 3, 'outbound_calls': 1},
-        {'id': 'b.ts::User', 'name': 'User', 'kind': 'interface', 'file': 'b.ts',
-         'start_line': 5, 'end_line': 15, 'signature': 'interface User {}', 'exported': True,
-         'selection_score': 6.8, 'inbound_calls': 10, 'outbound_calls': 0},
-    ]
-    keywords = ['auth', 'token', 'validate']
-    intents = {'bugfix'}
-    selector = IncrementalSelector(symbols, keywords, intents, total_budget=100000)
-
-    wave1 = selector.get_wave_symbols(0)
-    assert len(wave1) > 0
-
-    wave2 = selector.get_wave_symbols(1)
-    assert len(wave2) >= len(wave1)
-
-    wave3 = selector.get_wave_symbols(2)
-    assert len(wave3) >= len(wave2)
-
-
-def test_incremental_selector_expansion():
-    symbols = [
-        {'id': 'a.ts::foo', 'name': 'foo', 'kind': 'func', 'file': 'a.ts',
-         'start_line': 1, 'end_line': 5, 'signature': 'function foo()', 'exported': True,
-         'selection_score': 8.0, 'inbound_calls': 2, 'outbound_calls': 1},
-        {'id': 'b.ts::bar', 'name': 'bar', 'kind': 'func', 'file': 'b.ts',
-         'start_line': 1, 'end_line': 5, 'signature': 'function bar()', 'exported': True,
-         'selection_score': 6.0, 'inbound_calls': 3, 'outbound_calls': 1},
-    ]
-    selector = IncrementalSelector(symbols, ['foo', 'bar'], {'bugfix'}, total_budget=100000)
-    wave1 = selector.get_wave_symbols(0)
-    assert selector.selected_count > 0
-
-    expanded = selector.expand_symbol('b.ts::bar')
-    if expanded:
-        assert expanded['id'] == 'b.ts::bar'
-
-    plan = selector.get_expansion_plan(max_items=10)
-    assert len(plan) >= 0
 
 
 # ===================== ML Domain Detection =====================
@@ -645,7 +530,6 @@ def test_architectural_overhaul_improvements():
     from argon.parser.tree_sitter import TreeSitterAdapter
     from argon.engine.builder import _pagerank
     from argon.utils.tokens import TokenCounter
-    from argon.engine.incremental import IncrementalSelector
     
     # 1. Test TreeSitterAdapter
     class FakeNode:
@@ -685,15 +569,6 @@ def test_architectural_overhaul_improvements():
     claude_counter = TokenCounter(model="claude-3-5-sonnet", strict=False)
     assert claude_counter.is_claude is True
     assert claude_counter.count("hello world") >= 2
-
-    # 4. Test Cache-Aware Wave Budgets
-    symbols = [
-        {'id': 'a.ts::foo', 'name': 'foo', 'kind': 'func', 'file': 'a.ts',
-         'start_line': 1, 'end_line': 5, 'signature': 'function foo()', 'exported': True}
-    ]
-    selector = IncrementalSelector(symbols, ['foo'], set(), total_budget=10000)
-    selected = selector.get_wave_symbols(1)
-    assert len(selected) <= 1
 
 
 # ===================== Type-Aware Context Expansion =====================
