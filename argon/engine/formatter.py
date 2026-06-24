@@ -201,6 +201,8 @@ def build_precision_compact(
         header_parts.append(f'# tests: {tg["coverage_ratio"]*100:.0f}% coverage ({tg["tested_files"]}/{tg["total_source_files"]})')
 
     warning = selection_report.get('relevance_warning', '')
+    if selection_report.get('degraded'):
+        header_parts.append('# !!! DEGRADED CONTEXT: no direct task matches; output is neighbours/fallback only !!!')
     if warning:
         header_parts.append(f'# warning: {warning}')
 
@@ -379,6 +381,7 @@ def build_precision_json_payload(
         'max_tokens': max_tokens,
         'budget_profile': budget_settings['name'],
         'warning': selection_report.get('relevance_warning', ''),
+        'degraded': bool(selection_report.get('degraded')),
         'safeguards': rules,
         'subgraph': {
             'nodes': selection_report.get('subgraph_nodes', 0),
@@ -474,7 +477,7 @@ def _generate_precision_xml_or_markdown(
         warning_attr = ''
         if selection_report.get('relevance_warning'):
             warning_attr = f' warning="{xml_escape(selection_report["relevance_warning"])}"'
-        
+
         safeguards_xml = ""
         if rules:
             safeguards_xml = "  <safeguards>\n"
@@ -491,9 +494,21 @@ def _generate_precision_xml_or_markdown(
         footer = '  </context>\n</repo>\n'
     else:
         warning_line = ""
-        if selection_report.get('relevance_warning'):
+        if selection_report.get('degraded'):
+            # Banner at the very top: degraded output must not be mistaken for
+            # a high-confidence context dump.
+            warning_line = (
+                "\n> ⚠️ **DEGRADED CONTEXT** — no symbols matched the task directly. "
+                "The context below was built from neighbours and/or global fallback "
+                "and is likely NOT relevant. Refine the task or check that the code "
+                "exists in the graph.\n"
+            )
+            extra = selection_report.get('relevance_warning', '')
+            if extra:
+                warning_line += f">\n> {xml_escape(extra)}\n"
+        elif selection_report.get('relevance_warning'):
             warning_line = f"\n**WARNING**: {selection_report['relevance_warning']}\n"
-        
+
         safeguards_md = ""
         if rules:
             safeguards_md = "\n## AI CODING SAFEGUARDS\n"

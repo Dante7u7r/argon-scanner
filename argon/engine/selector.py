@@ -1,5 +1,6 @@
 """Budget-aware symbol selection with MMR diversity and greedy allocation."""
 
+import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -234,20 +235,23 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
                 report[reason] += 1
 
     seed_scores = []
-    all_task_scores = []
+    # Single scoring pass: compute task score for every symbol ONCE and reuse.
+    # Previously this was computed three separate times (max_task_score,
+    # seed_weights, and the main loop). The scorer has an internal cache, but
+    # consolidating here removes the repeated key-construction and dict lookups
+    # and makes the control flow explicit.
+    task_scores: Dict[str, Tuple[float, int]] = {}
+    all_task_scores: List[float] = []
     for sym in graph.get('symbols', []):
-        task_score, overlap_count = score_symbol_for_task(sym, keywords, idf, false_positive_blacklist, semantic_index, task)
-        all_task_scores.append(task_score)
+        ts, oc = score_symbol_for_task(sym, keywords, idf, false_positive_blacklist, semantic_index, task)
+        task_scores[sym['id']] = (ts, oc)
+        all_task_scores.append(ts)
     max_task_score = max(all_task_scores) if all_task_scores else 1.0
     if max_task_score == 0:
         max_task_score = 1.0
 
     # Personalized PageRank — teleport biased toward task-matched symbols
-    seed_weights: Dict[str, float] = {}
-    for sym in graph.get('symbols', []):
-        ts = score_symbol_for_task(sym, keywords, idf, false_positive_blacklist, semantic_index, task)[0]
-        if ts > 0:
-            seed_weights[sym['id']] = ts
+    seed_weights: Dict[str, float] = {sid: ts for sid, (ts, _oc) in task_scores.items() if ts > 0}
     personalized_rank = _personalized_pagerank(
         [s['id'] for s in graph.get('symbols', [])],
         graph.get('symbol_edges', []),
@@ -255,7 +259,7 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
     ) if seed_weights else {}
 
     for sym in graph.get('symbols', []):
-        task_score, overlap_count = score_symbol_for_task(sym, keywords, idf, false_positive_blacklist, semantic_index, task)
+        task_score, overlap_count = task_scores[sym['id']]
         generic = is_generic_type_symbol(sym)
         generic_penalty = 0.45 if generic and overlap_count == 0 and 'types' not in intents else 1.0
         if generic_penalty < 1:
@@ -361,7 +365,6 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
                     add(test_sym['id'], seed_final * 0.50, 'code_test_map')
 
     # ─── Type-Aware Context Expansion ──────────────────────────────────
-    import re
     type_candidate_names = set()
     for item in list(candidates.values()):
         tier = item.get('context_tier', 'support')
@@ -596,7 +599,14 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
     )[:8]
     report['expansion_plan'] = expansion_plan
     report['expansion_count'] = len(expansion_plan)
-    if report.get('direct_matches', 0) == 0 and report.get('global_fallback', 0) > 0:
+    direct_matches = report.get('direct_matches', 0)
+    fallback = report.get('global_fallback', 0)
+    # Degraded mode: no symbol matched the task directly. Output is then built
+    # from neighbours and/or a global fallback, which is rarely what the user
+    # wants. Surface this explicitly so formatters can warn at the top of the
+    # generated file instead of silently shipping irrelevant context.
+    report['degraded'] = direct_matches == 0 and (fallback > 0 or len(selected) == 0)
+    if direct_matches == 0:
         focus_tokens_set = set(keywords)
         project_tokens = set()
         for sym in graph.get('symbols', []):
@@ -606,6 +616,14 @@ def select_precision_symbols(graph: Dict[str, Any], task: str, max_tokens: int =
             report['relevance_warning'] = (
                 f"Task keywords {sorted(missing)} not found in project symbols. "
                 f"Project may not contain relevant code for this task."
+            )
+        elif not report.get('relevance_warning'):
+            # Matches were filtered (noise/weak/isolated) or the task only hit
+            # files, not symbols. Give the user something actionable regardless.
+            report['relevance_warning'] = (
+                "No symbols matched the task directly; context was built from "
+                "neighbours and/or global fallback. Verify the task wording or "
+                "check that the relevant code is reachable from the graph."
             )
     elif selected:
         task_domain_keywords = set()
