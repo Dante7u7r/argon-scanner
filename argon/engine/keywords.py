@@ -39,7 +39,7 @@ SYNONYM_GROUPS = {
     },
     'billing': {'billing', 'bill', 'invoice', 'invoicing', 'receipt', 'charge', 'charges', 'purchase', 'purchasing', 'subscription', 'subscribe', 'subscriber', 'payer', 'payee', 'statement'},
     'cache': {'cache', 'cached', 'caching', 'invalidation', 'invalidate', 'invalidated'},
-    'order': {'order', 'orders', 'checkout', 'cart', 'cartitem', 'purchase', 'fulfillment'},
+    'order': {'order', 'orders', 'checkout', 'cart', 'cartitem', 'purchase', 'fulfillment', 'total', 'calculate', 'sum', 'price', 'amount'},
     'placement': {'placement', 'place', 'placing', 'submit'},
     'cancel': {'cancel', 'cancellation', 'cancelled', 'canceled'},
     'total': {'total', 'sum', 'price', 'amount', 'calculate', 'calculation'},

@@ -4,7 +4,7 @@ from argon.models import Symbol
 
 TS_LANG_MAP = {
     'py': 'python', 'js': 'javascript', 'jsx': 'javascript',
-    'ts': 'typescript', 'tsx': 'tsx',
+    'ts': 'typescript', 'tsx': 'tsx', 'vue': 'typescript',
     'java': 'java', 'cs': 'c_sharp', 'go': 'go',
     'rs': 'rust', 'cpp': 'cpp', 'c': 'c', 'h': 'c', 'hpp': 'cpp',
     'rb': 'ruby', 'php': 'php', 'swift': 'swift', 'kt': 'kotlin',
@@ -57,8 +57,82 @@ class TreeSitterAdapter:
         return rn
 
     @staticmethod
-    def decode_text(node) -> str:
-        text = node.text
+    def get_children(node):
+        """Get children as list, works with both old and new API."""
+        if hasattr(node, 'children') and not callable(node.children):
+            return list(node.children)
+        # New API: use child() and child_count()
+        count = node.child_count() if callable(node.child_count) else node.child_count
+        return [node.child(i) for i in range(count)]
+
+    @staticmethod
+    def get_type(node) -> str:
+        """Get node type/kind, works with both old and new API."""
+        if hasattr(node, 'type') and not callable(node.type):
+            return node.type
+        kind = node.kind() if callable(node.kind) else node.kind
+        return kind
+
+    @staticmethod
+    def get_start_point(node):
+        """Get start point (row, col), works with both old and new API."""
+        if hasattr(node, 'start_point') and not callable(node.start_point):
+            return node.start_point
+        pos = node.start_position if not callable(node.start_position) else node.start_position()
+        return (pos.row, pos.column)
+
+    @staticmethod
+    def get_end_point(node):
+        """Get end point (row, col), works with both old and new API."""
+        if hasattr(node, 'end_point') and not callable(node.end_point):
+            return node.end_point
+        pos = node.end_position if not callable(node.end_position) else node.end_position()
+        return (pos.row, pos.column)
+
+    @staticmethod
+    def get_start_byte(node):
+        """Get start byte offset, works with both old and new API."""
+        if hasattr(node, 'start_byte') and not callable(node.start_byte):
+            return node.start_byte
+        return node.start_byte()
+
+    @staticmethod
+    def get_end_byte(node):
+        """Get end byte offset, works with both old and new API."""
+        if hasattr(node, 'end_byte') and not callable(node.end_byte):
+            return node.end_byte
+        return node.end_byte()
+
+    @staticmethod
+    def decode_text(node, source: str = None) -> str:
+        """Extract text from node using byte offsets.
+        
+        If source is provided, uses byte offsets from node.
+        If source is not provided, falls back to checking node.text attribute/method
+        (for backward compatibility with tests).
+        """
+        # New API: use byte offsets from source
+        if source is not None:
+            start = TreeSitterAdapter.get_start_byte(node)
+            end = TreeSitterAdapter.get_end_byte(node)
+            if start is not None and end is not None and start < end:
+                try:
+                    return source[start:end]
+                except Exception:
+                    pass
+        
+        # Backward compatibility: try to get text from node directly
+        # New API: text is a method
+        text = None
+        if callable(getattr(node, 'text', None)):
+            try:
+                text = node.text()
+            except Exception:
+                pass
+        if text is None:
+            text = getattr(node, 'text', None)
+        if text is None:
+            return ""
         if isinstance(text, bytes):
             return text.decode('utf-8', errors='replace')
         return str(text)
@@ -80,13 +154,15 @@ class TreeSitterExtractor:
                 self._parsers[lang] = None
         return self._parsers[lang]
 
-    def _find_name(self, node) -> Optional[str]:
-        for child in node.children:
-            if child.type in ('identifier', 'name', 'type_identifier', 'property_identifier'):
-                return TreeSitterAdapter.decode_text(child)
-        for child in node.children:
-            if 'declarator' in child.type:
-                return self._find_name(child)
+    def _find_name(self, node, source: str) -> Optional[str]:
+        for child in TreeSitterAdapter.get_children(node):
+            child_type = TreeSitterAdapter.get_type(child)
+            if child_type in ('identifier', 'name', 'type_identifier', 'property_identifier'):
+                return TreeSitterAdapter.decode_text(child, source)
+        for child in TreeSitterAdapter.get_children(node):
+            child_type = TreeSitterAdapter.get_type(child)
+            if 'declarator' in child_type:
+                return self._find_name(child, source)
         return None
 
     def _signature(self, content: str, start_line: int) -> str:
@@ -210,42 +286,46 @@ class TreeSitterExtractor:
             seen = set()
 
             def collect_calls(n, calls_list, is_root=False):
-                if not is_root and n.type in symbol_map:
+                node_type = TreeSitterAdapter.get_type(n)
+                if not is_root and node_type in symbol_map:
                     return
-                node_type = n.type
                 is_call = ('call' in node_type or
                            'invocation' in node_type or
                            'new_expression' in node_type or
                            'object_creation' in node_type)
                 if is_call:
-                    if n.children:
-                        callee = n.children[0]
-                        if TreeSitterAdapter.decode_text(callee) == 'new' and len(n.children) > 1:
-                            callee = n.children[1]
-                        callee_text = TreeSitterAdapter.decode_text(callee).strip()
+                    children = TreeSitterAdapter.get_children(n)
+                    if children:
+                        callee = children[0]
+                        if TreeSitterAdapter.decode_text(callee, content) == 'new' and len(children) > 1:
+                            callee = children[1]
+                        callee_text = TreeSitterAdapter.decode_text(callee, content).strip()
                         if callee_text:
                             calls_list.append(callee_text)
-                for child in n.children:
+                for child in TreeSitterAdapter.get_children(n):
                     collect_calls(child, calls_list, is_root=False)
 
             def walk(node):
-                if node.type in symbol_map:
-                    name = self._find_name(node)
+                node_type = TreeSitterAdapter.get_type(node)
+                if node_type in symbol_map:
+                    name = self._find_name(node, content)
                     if name and name not in seen and len(name) > 1:
-                        start_line = node.start_point[0] + 1
+                        start_point = TreeSitterAdapter.get_start_point(node)
+                        end_point = TreeSitterAdapter.get_end_point(node)
+                        start_line = start_point[0] + 1
                         calls_list = []
                         collect_calls(node, calls_list, is_root=True)
                         symbols.append(Symbol(
                             name=name,
-                            kind=symbol_map[node.type],
+                            kind=symbol_map[node_type],
                             line=start_line,
-                            end_line=node.end_point[0] + 1,
+                            end_line=end_point[0] + 1,
                             signature=self._signature(content, start_line),
                             exported=self._is_exported(content, start_line),
                             calls=calls_list,
                         ))
                         seen.add(name)
-                for child in node.children:
+                for child in TreeSitterAdapter.get_children(node):
                     walk(child)
 
             root = TreeSitterAdapter.get_root(tree)

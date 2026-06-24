@@ -1,20 +1,20 @@
 {
   "case_count": 51,
-  "aggregate_recall": 0.8562,
+  "aggregate_recall": 0.8725,
   "fixture_recall": {
     "fixture_csharp": 1.0,
     "fixture_fastapi": 0.6898,
     "fixture_java": 1.0,
     "fixture_python": 1.0,
     "fixture_rust": 1.0,
-    "fixture_tauri": 0.8939,
+    "fixture_tauri": 0.9697,
     "fixture_ts": 0.9167
   },
   "category_recall": {
-    "bugfix": 0.8974,
-    "feature": 0.8506,
+    "bugfix": 0.9167,
+    "feature": 0.8592,
     "refactor": 0.9,
-    "security": 0.6667,
+    "security": 0.8333,
     "tests": 0.75
   },
   "cases": [
@@ -72,7 +72,7 @@
       "fixture": "fixture_python",
       "category": "feature",
       "recall": 1.0,
-      "score": 0.8438
+      "score": 0.7771
     },
     {
       "id": "java-auth-001",
@@ -121,7 +121,7 @@
       "fixture": "fixture_fastapi",
       "category": "feature",
       "recall": 1.0,
-      "score": 0.7958
+      "score": 0.7292
     },
     {
       "id": "fastapi-user-005",
@@ -170,7 +170,7 @@
       "fixture": "fixture_fastapi",
       "category": "feature",
       "recall": 0.75,
-      "score": 0.5792
+      "score": 0.4792
     },
     {
       "id": "fastapi-refactor-012",
@@ -275,7 +275,7 @@
       "fixture": "fixture_rust",
       "category": "feature",
       "recall": 1.0,
-      "score": 0.8438
+      "score": 0.7771
     },
     {
       "id": "rust-user-005",
@@ -289,7 +289,7 @@
       "fixture": "fixture_rust",
       "category": "feature",
       "recall": 1.0,
-      "score": 0.7938
+      "score": 0.7625
     },
     {
       "id": "rust-error-007",
@@ -302,15 +302,15 @@
       "id": "tauri-auth-001",
       "fixture": "fixture_tauri",
       "category": "bugfix",
-      "recall": 0.75,
-      "score": 0.6125
+      "recall": 1.0,
+      "score": 0.775
     },
     {
       "id": "tauri-order-002",
       "fixture": "fixture_tauri",
       "category": "feature",
-      "recall": 0.75,
-      "score": 0.65
+      "recall": 1.0,
+      "score": 0.75
     },
     {
       "id": "tauri-payment-003",
@@ -324,21 +324,21 @@
       "fixture": "fixture_tauri",
       "category": "refactor",
       "recall": 1.0,
-      "score": 0.7375
+      "score": 0.7063
     },
     {
       "id": "tauri-cross-005",
       "fixture": "fixture_tauri",
       "category": "feature",
       "recall": 1.0,
-      "score": 0.725
+      "score": 0.7
     },
     {
       "id": "tauri-security-006",
       "fixture": "fixture_tauri",
       "category": "security",
-      "recall": 0.6667,
-      "score": 0.6292
+      "recall": 1.0,
+      "score": 0.7271
     },
     {
       "id": "tauri-store-007",
@@ -359,7 +359,7 @@
       "fixture": "fixture_tauri",
       "category": "feature",
       "recall": 1.0,
-      "score": 0.775
+      "score": 0.75
     },
     {
       "id": "tauri-model-010",
@@ -376,6 +376,6 @@
       "score": 0.5792
     }
   ],
-  "dataset_hash": "648604b49303afa9",
+  "dataset_hash": "8f3adacc543ef5db",
   "dataset_version": 2
 }
