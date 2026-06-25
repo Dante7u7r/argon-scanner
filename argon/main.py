@@ -5,6 +5,69 @@ import os
 from argon import pathspec, tiktoken, ts_pack
 from argon.engine.graph import PRECISION_BUDGET_PROFILES, ArgonEngine
 
+LLM_GUIDE = """
+╔════════════════════════════════════════════════════════════════════╗
+║                    ARGON — Quick Guide for LLMs                    ║
+╠════════════════════════════════════════════════════════════════════╣
+║  ARGON scans codebases and returns token-budgeted context.        ║
+║  No ML/LLMs at scan time — pure static analysis (tree-sitter).    ║
+╚════════════════════════════════════════════════════════════════════╝
+
+RECOMMENDED FLOW:
+  1. argon . --smart-start
+     → Returns: domain, symbol count, relevance yes/no.
+     → If "not relevant": STOP, don't waste tokens.
+
+  2. argon . --precision --task "your task" --budget-profile micro --format compact
+     → micro=1500 tokens, standard=4096, deep=8192
+     → compact = 58% less tokens than JSON
+
+  3. Read output. Look for:
+     !id|tier|kind|role|confidence
+     tier: cri (critical), wkf (workflow), sup (support)
+     confidence: very_high≥0.65, high≥0.35, medium≥0.10, low<0.10
+     > = calls, < = called by, >> = transitive calls
+
+  4. Need more? argon_expand_symbol "file.py::symbol" --max-tokens 2000
+
+KEY FLAGS:
+  --precision           Enable task-aware selection + real token counting
+  --task "..."          Your task description (drives keyword scoring)
+  --budget-profile      micro|standard|deep (overrides --budget)
+  --format compact      Best for LLM consumption (dense, token-efficient)
+  --smart-start         Check relevance before spending tokens
+
+EXAMPLES:
+  # Check if project has auth code
+  argon . --smart-start
+
+  # Get context for bug fix (1500 tokens)
+  argon . --precision --task "fix login timeout" --budget-profile micro --format compact
+
+  # Deep dive with full code (8192 tokens)
+  argon . --precision --task "refactor payment flow" --budget-profile deep --format json
+
+  # Visualize in browser
+  argon . --precision --task "..." --view --open-view
+
+OUTPUT LEGEND (compact):
+  !table.py::_calc|cri|func|hub|0.85
+    < table.py::Table              ← called by Table
+    << export.py::print_table      ←← transitively called by
+    >> table.py::render_row        →→ transitively calls
+    sig: def _calc(...)
+    code: ...
+
+CONFIDENCE:
+  very_high (≥0.65) → read code
+  high (≥0.35)      → read code
+  medium (≥0.10)    → skim
+  low (<0.10)       → ignore
+
+WARNINGS:
+  "Task domain keywords not found" → your task keywords don't match project symbols.
+  Try different task wording or check smart-start first.
+"""
 
 def main():
     parser = argparse.ArgumentParser(description='ARGON v9.0 // UNIVERSAL_SCANNER')
@@ -27,7 +90,12 @@ def main():
     parser.add_argument('--output', default=None, metavar='DIR',
                         help='Directorio de salida para ARGON.md y argon_graph.json '
                              '(default: raiz del proyecto escaneado)')
+    parser.add_argument('--llm-guide', action='store_true', help='Guía rápida para LLMs: cómo usar ARGON eficientemente')
     args = parser.parse_args()
+
+    if args.llm_guide:
+        print(LLM_GUIDE)
+        return
 
     target = os.path.abspath(args.path)
     if args.output:
