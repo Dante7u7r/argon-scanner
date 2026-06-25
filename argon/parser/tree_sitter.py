@@ -40,6 +40,33 @@ TS_DEFAULT_SYMBOLS = {
     'enum_declaration': 'enum',
 }
 
+# ============================================================
+# TODO: Deuda técnica — tree_sitter_language_pack v1.9.1
+# ============================================================
+# Limitación actual:
+#   tree_sitter_language_pack v1.9.1 expone un objeto Language
+#   nativo (Rust vía PyO3) que NO tiene método .query(). El
+#   tree_sitter.Query de la librería tree_sitter 0.25.2 requiere
+#   un tree_sitter.Language nativo, incompatible ABI con el
+#   builtins.Language del pack. Intentar mezclarlos causa SEGFAULT.
+#
+# Solución implementada:
+#   Los strings .scm en CALL_QUERIES definen los patrones de
+#   llamada por lenguaje. El matching se implementa mediante
+#   child_by_field_name() sobre el AST parseado por el pack,
+#   emulando la semántica de las queries S-expression.
+#
+# Plan de migración futuro:
+#   Cuando tree_sitter_language_pack exponga .query() nativo
+#   (o sea compatible con tree_sitter.Query), reemplazar
+#   _collect_calls_in_node() y _extract_callee_from_call()
+#   con ejecución directa de los strings .scm. La migración
+#   sería casi drop-in porque CALL_QUERIES ya contiene las
+#   queries correctas y captura los mismos @callee/@method.
+#   Esto daría un salto en rendimiento (O(pattern) vs O(node))
+#   y eliminaría el código de walk manual.
+# ============================================================
+
 CALL_QUERIES = {
     'python': {
         'call': '(call function: (identifier) @callee)',
